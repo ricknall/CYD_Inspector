@@ -1,0 +1,132 @@
+#include <Arduino.h>
+#include <SPI.h>
+#include <esp_chip_info.h>
+#include <esp_flash.h>
+#include <esp_system.h>
+
+// Known Sunton/CYD display bus used by both classic and 2-USB boards.
+static constexpr int LCD_MOSI = 13;
+static constexpr int LCD_MISO = 12;
+static constexpr int LCD_SCLK = 14;
+static constexpr int LCD_CS   = 15;
+static constexpr int LCD_DC   = 2;
+static constexpr int LCD_BL   = 21;
+
+SPIClass lcd(VSPI);
+
+static inline void cmd(uint8_t c) {
+  digitalWrite(LCD_DC, LOW); digitalWrite(LCD_CS, LOW);
+  lcd.transfer(c); digitalWrite(LCD_CS, HIGH);
+}
+static inline void data8(uint8_t d) {
+  digitalWrite(LCD_DC, HIGH); digitalWrite(LCD_CS, LOW);
+  lcd.transfer(d); digitalWrite(LCD_CS, HIGH);
+}
+static void dataN(const uint8_t *p, size_t n) {
+  digitalWrite(LCD_DC, HIGH); digitalWrite(LCD_CS, LOW);
+  lcd.writeBytes(p, n); digitalWrite(LCD_CS, HIGH);
+}
+
+static void st7789_init() {
+  cmd(0x01); delay(150);                    // SWRESET
+  cmd(0x11); delay(120);                    // SLPOUT
+  cmd(0x3A); data8(0x55);                   // RGB565
+  cmd(0x36); data8(0x60);                   // landscape, BGR
+  cmd(0x21);                                // inversion on (common CYD2USB panel)
+  cmd(0x13);                                // normal mode
+  cmd(0x29); delay(20);                     // display on
+}
+
+static void window(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1) {
+  cmd(0x2A); uint8_t a[] = {uint8_t(x0>>8),uint8_t(x0),uint8_t(x1>>8),uint8_t(x1)}; dataN(a,4);
+  cmd(0x2B); uint8_t b[] = {uint8_t(y0>>8),uint8_t(y0),uint8_t(y1>>8),uint8_t(y1)}; dataN(b,4);
+  cmd(0x2C);
+}
+
+static void fill(uint16_t color) {
+  window(0,0,319,239);
+  digitalWrite(LCD_DC,HIGH); digitalWrite(LCD_CS,LOW);
+  uint8_t hi=color>>8, lo=color;
+  for (uint32_t i=0;i<320UL*240UL;i++) { lcd.transfer(hi); lcd.transfer(lo); }
+  digitalWrite(LCD_CS,HIGH);
+}
+
+// Compact 5x7 glyphs: digits, uppercase letters, punctuation used by this utility.
+struct Glyph { char c; uint8_t r[7]; };
+static const Glyph font[] PROGMEM = {
+ {' ',{0,0,0,0,0,0,0}}, {'-',{0,0,0,31,0,0,0}}, {'.',{0,0,0,0,0,12,12}},
+ {':',{0,12,12,0,12,12,0}}, {'/',{1,2,4,8,16,0,0}}, {'(',{2,4,8,8,8,4,2}}, {')',{8,4,2,2,2,4,8}},
+ {'0',{14,17,19,21,25,17,14}}, {'1',{4,12,4,4,4,4,14}}, {'2',{14,17,1,2,4,8,31}},
+ {'3',{30,1,1,14,1,1,30}}, {'4',{2,6,10,18,31,2,2}}, {'5',{31,16,16,30,1,1,30}},
+ {'6',{14,16,16,30,17,17,14}}, {'7',{31,1,2,4,8,8,8}}, {'8',{14,17,17,14,17,17,14}},
+ {'9',{14,17,17,15,1,1,14}},
+ {'A',{14,17,17,31,17,17,17}}, {'B',{30,17,17,30,17,17,30}}, {'C',{14,17,16,16,16,17,14}},
+ {'D',{30,17,17,17,17,17,30}}, {'E',{31,16,16,30,16,16,31}}, {'F',{31,16,16,30,16,16,16}},
+ {'G',{14,17,16,23,17,17,15}}, {'H',{17,17,17,31,17,17,17}}, {'I',{14,4,4,4,4,4,14}},
+ {'J',{7,2,2,2,2,18,12}}, {'K',{17,18,20,24,20,18,17}}, {'L',{16,16,16,16,16,16,31}},
+ {'M',{17,27,21,21,17,17,17}}, {'N',{17,25,21,19,17,17,17}}, {'O',{14,17,17,17,17,17,14}},
+ {'P',{30,17,17,30,16,16,16}}, {'Q',{14,17,17,17,21,18,13}}, {'R',{30,17,17,30,20,18,17}},
+ {'S',{15,16,16,14,1,1,30}}, {'T',{31,4,4,4,4,4,4}}, {'U',{17,17,17,17,17,17,14}},
+ {'V',{17,17,17,17,17,10,4}}, {'W',{17,17,17,21,21,21,10}}, {'X',{17,17,10,4,10,17,17}},
+ {'Y',{17,17,10,4,4,4,4}}, {'Z',{31,1,2,4,8,16,31}}
+};
+
+static const uint8_t* glyph(char c) {
+  if (c>='a' && c<='z') c-=32;
+  for (size_t i=0;i<sizeof(font)/sizeof(font[0]);i++) if ((char)pgm_read_byte(&font[i].c)==c) return font[i].r;
+  return font[0].r;
+}
+static void pixelRect(int x,int y,int w,int h,uint16_t color) {
+  if(x<0||y<0||x+w>320||y+h>240) return;
+  window(x,y,x+w-1,y+h-1); digitalWrite(LCD_DC,HIGH); digitalWrite(LCD_CS,LOW);
+  uint8_t hi=color>>8, lo=color; for(int i=0;i<w*h;i++){lcd.transfer(hi);lcd.transfer(lo);} digitalWrite(LCD_CS,HIGH);
+}
+static void text(int x,int y,const String &s,uint16_t color,int scale=2) {
+  for (char c: s) {
+    const uint8_t *g=glyph(c);
+    for(int row=0;row<7;row++){ uint8_t bits=pgm_read_byte(g+row); for(int col=0;col<5;col++) if(bits&(1<<(4-col))) pixelRect(x+col*scale,y+row*scale,scale,scale,color); }
+    x += 6*scale;
+  }
+}
+
+static String chipModel(const esp_chip_info_t &ci) {
+  switch(ci.model){
+    case CHIP_ESP32: return "ESP32";
+    case CHIP_ESP32S2: return "ESP32-S2";
+    case CHIP_ESP32S3: return "ESP32-S3";
+    case CHIP_ESP32C3: return "ESP32-C3";
+    default: return "ESP32 FAMILY";
+  }
+}
+
+void setup() {
+  Serial.begin(115200); delay(300);
+  pinMode(LCD_CS,OUTPUT); pinMode(LCD_DC,OUTPUT); pinMode(LCD_BL,OUTPUT);
+  digitalWrite(LCD_CS,HIGH); digitalWrite(LCD_BL,HIGH);
+  lcd.begin(LCD_SCLK,LCD_MISO,LCD_MOSI,LCD_CS); lcd.beginTransaction(SPISettings(40000000,MSBFIRST,SPI_MODE0));
+
+  esp_chip_info_t ci{}; esp_chip_info(&ci);
+  uint32_t flash=0; esp_flash_get_size(nullptr,&flash);
+  bool psram = psramFound();
+
+  st7789_init(); fill(0x0000);
+  text(10,8,"CYD BOARD INSPECTOR",0xFFE0,2);
+  text(10,32,"DISPLAY PATH: ST7789",0x07FF,2);
+  text(10,56,"BOARD FAMILY:",0xFFFF,2);
+  text(10,78,"ESP32-2432S028",0x07E0,3);
+  text(10,105,"CYD2USB / TWO USB",0x07E0,2);
+  text(10,132,"MCU: "+chipModel(ci),0xFFFF,2);
+  text(10,154,"CORES: "+String(ci.cores)+" REV: "+String(ci.revision),0xFFFF,2);
+  text(10,176,"FLASH: "+String(flash/(1024*1024))+" MB",0xFFFF,2);
+  text(10,198,"PSRAM: "+String(psram?"YES":"NO"),0xFFFF,2);
+  text(10,220,"SERIAL: 115200",0x8410,1);
+
+  Serial.println("=== CYD BOARD INSPECTOR ===");
+  Serial.println("Display test image uses the CYD2USB ST7789 configuration.");
+  Serial.println("If this text is readable, classify the board as ESP32-2432S028 CYD2USB / two-USB family.");
+  Serial.printf("MCU: %s, cores=%d, revision=%d\n",chipModel(ci).c_str(),ci.cores,ci.revision);
+  Serial.printf("Flash: %lu bytes (%lu MB)\n",(unsigned long)flash,(unsigned long)(flash/(1024*1024)));
+  Serial.printf("PSRAM: %s\n",psram?"yes":"no");
+  Serial.println("NOTE: PCB marketing model strings are not stored electronically; classification is by working peripheral configuration.");
+}
+void loop(){ delay(1000); }

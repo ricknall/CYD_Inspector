@@ -1,0 +1,13 @@
+{
+  "name": "CYD Board Inspector",
+  "version": "1.1.0-platformio",
+  "new_install_prompt_erase": true,
+  "builds": [
+    {
+      "chipFamily": "ESP32",
+      "parts": [
+        { "path": "CYD_Board_Inspector.merged.bin", "offset": 0 }
+      ]
+    }
+  ]
+}

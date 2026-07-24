@@ -1,81 +1,20 @@
 #include <Arduino.h>
-#include <SD.h>
-#include <SPI.h>
 
 #include "BoardConfig.h"
 #include "CydDisplay.h"
+#include "PeripheralReport.h"
+#include "ReportPages.h"
 #include "SystemReport.h"
 
 namespace {
 
 CydDisplay display;
 
-// The display uses VSPI. Give the SD card the other hardware SPI controller.
-SPIClass sdSpi(HSPI);
-
-struct SdStatus {
-  bool mounted = false;
-  uint8_t cardType = CARD_NONE;
-
-  uint64_t cardBytes = 0;    // Entire physical card
-  uint64_t volumeBytes = 0;  // Formatted FAT partition
-  uint64_t usedBytes = 0;
-};
-
 SystemReport systemReport;
 DisplayProbe displayProbe;
 SdStatus sdStatus;
 String commandBuffer;
-
-const char* cardTypeName(const uint8_t type) {
-  switch (type) {
-    case CARD_MMC:
-      return "MMC";
-    case CARD_SD:
-      return "SDSC";
-    case CARD_SDHC:
-      return "SDHC";
-    default:
-      return "UNKNOWN";
-  }
-}
-
-SdStatus inspectSdCard() {
-  SdStatus result;
-
-  pinMode(cyd::SD_CS, OUTPUT);
-  digitalWrite(cyd::SD_CS, HIGH);
-
-  sdSpi.begin(cyd::SD_SCLK, cyd::SD_MISO, cyd::SD_MOSI, cyd::SD_CS);
-
-  if (!SD.begin(cyd::SD_CS, sdSpi, cyd::SD_SPI_FREQUENCY)) {
-    return result;
-  }
-
-  result.cardType = SD.cardType();
-
-  if (result.cardType == CARD_NONE) {
-    return result;
-  }
-
-  result.mounted = true;
-  result.cardBytes = SD.cardSize();
-  result.volumeBytes = SD.totalBytes();
-  result.usedBytes = SD.usedBytes();
-
-  return result;
-}
-
-String sdDisplayText(const SdStatus& status) {
-  if (!status.mounted) {
-    return "SD: NO CARD OR MOUNT FAIL";
-  }
-
-  const uint32_t volumeMiB = static_cast<uint32_t>(
-      status.volumeBytes / (1024ULL * 1024ULL));
-
-  return "SD VOLUME: " + String(volumeMiB) + " MB";
-}
+bool swallowNextLineFeed = false;
 
 void printHexBytes(const char* label,
                    const uint8_t* values,
@@ -104,48 +43,6 @@ void printJsonByteArray(const uint8_t* values, const size_t length) {
   Serial.print(']');
 }
 
-void showInventory(const SystemReport& system,
-                   const DisplayProbe& probe,
-                   const SdStatus& sd) {
-  display.fill(0x0000);
-
-  display.text(10, 8, "CYD BOARD INSPECTOR", 0xFFE0, 2);
-  display.text(10, 32, "DISPLAY SPI: WORKING", 0x07FF, 2);
-  display.text(
-      10,
-      54,
-      String("DISPLAY IC: ") + displayControllerName(probe.controller),
-      0x07E0,
-      2);
-  display.text(10, 76, "BOARD PROFILE: MANUAL", 0x07E0, 2);
-  display.text(10, 98, sdDisplayText(sd), 0xFBE0, 2);
-
-  display.text(10, 122, "MCU: " + system.chipModel, 0xFFFF, 2);
-  display.text(
-      10,
-      144,
-      "CORES: " + String(system.coreCount) +
-          " CPU: " + String(system.cpuFrequencyMhz) + " MHZ",
-      0xFFFF,
-      2);
-  display.text(
-      10,
-      166,
-      "FLASH: " +
-          String(system.flashSizeBytes / (1024UL * 1024UL)) +
-          " MB " + system.flashMode,
-      0xFFFF,
-      2);
-  display.text(
-      10,
-      188,
-      "PSRAM: " + String(system.psramFound ? "YES" : "NO"),
-      0xFFFF,
-      2);
-
-  display.text(10, 220, "TYPE HELP IN SERIAL MONITOR", 0x8410, 1);
-}
-
 void printDisplayReport(const DisplayProbe& probe) {
   Serial.println("--- DISPLAY ---");
   Serial.println("Profile: compatible manual CYD profile");
@@ -170,41 +67,6 @@ void printDisplayReport(const DisplayProbe& probe) {
   printHexBytes("  MADCTL 0B", probe.madctl, sizeof(probe.madctl));
   printHexBytes("  PIXFMT 0C", probe.pixelFormat,
                 sizeof(probe.pixelFormat));
-}
-
-void printPeripheralReport(const SdStatus& sd) {
-  Serial.println("--- PERIPHERALS ---");
-  Serial.printf("SD SPI: MOSI=%d MISO=%d SCLK=%d CS=%d at %lu MHz\n",
-                cyd::SD_MOSI,
-                cyd::SD_MISO,
-                cyd::SD_SCLK,
-                cyd::SD_CS,
-                static_cast<unsigned long>(
-                    cyd::SD_SPI_FREQUENCY / 1000000UL));
-
-  if (sd.mounted) {
-    Serial.printf(
-        "SD card: type=%s\n"
-        "  Physical card: %llu bytes (%llu MiB)\n"
-        "  FAT volume:    %llu bytes (%llu MiB)\n"
-        "  Used:          %llu bytes (%llu MiB)\n",
-        cardTypeName(sd.cardType),
-        static_cast<unsigned long long>(sd.cardBytes),
-        static_cast<unsigned long long>(
-            sd.cardBytes / (1024ULL * 1024ULL)),
-        static_cast<unsigned long long>(sd.volumeBytes),
-        static_cast<unsigned long long>(
-            sd.volumeBytes / (1024ULL * 1024ULL)),
-        static_cast<unsigned long long>(sd.usedBytes),
-        static_cast<unsigned long long>(
-            sd.usedBytes / (1024ULL * 1024ULL)));
-  } else {
-    Serial.println("SD card: no card detected or mount failed.");
-  }
-
-  Serial.println(
-      "Touch/RGB LED/speaker/light sensor: not assumed until a board "
-      "profile is selected.");
 }
 
 void printInventory() {
@@ -283,7 +145,7 @@ void printJsonReport() {
   Serial.printf("    \"mounted\": %s,\n",
                 sdStatus.mounted ? "true" : "false");
   Serial.printf("    \"type\": \"%s\",\n",
-                cardTypeName(sdStatus.cardType));
+                sdCardTypeName(sdStatus.cardType));
   Serial.printf("    \"card_bytes\": %llu,\n",
                 static_cast<unsigned long long>(sdStatus.cardBytes));
   Serial.printf("    \"volume_bytes\": %llu,\n",
@@ -317,14 +179,19 @@ void runCommand(String command) {
   if (command == "help") {
     printHelp();
   } else if (command == "report") {
+    showOverviewPage(display, systemReport, displayProbe, sdStatus);
     printInventory();
   } else if (command == "system") {
+    showSystemPage(display, systemReport);
     printSystemReport(systemReport);
   } else if (command == "display") {
+    showDisplayPage(display, displayProbe);
     printDisplayReport(displayProbe);
   } else if (command == "peripherals") {
+    showPeripheralPage(display, sdStatus);
     printPeripheralReport(sdStatus);
   } else if (command == "touch") {
+    showTouchPage(display);
     Serial.println(
         "Touch: not probed yet. No controller or pin mapping will be guessed "
         "without a selected board profile.");
@@ -336,22 +203,55 @@ void runCommand(String command) {
   }
 }
 
+void printPrompt() {
+  Serial.print("> ");
+}
+
+void submitCommandBuffer() {
+  Serial.println();
+  runCommand(commandBuffer);
+  commandBuffer = "";
+  printPrompt();
+}
+
 void serviceSerialConsole() {
   while (Serial.available() > 0) {
     const char character = static_cast<char>(Serial.read());
 
     if (character == '\r') {
+      submitCommandBuffer();
+      swallowNextLineFeed = true;
       continue;
     }
 
     if (character == '\n') {
-      runCommand(commandBuffer);
-      commandBuffer = "";
+      if (swallowNextLineFeed) {
+        swallowNextLineFeed = false;
+        continue;
+      }
+
+      submitCommandBuffer();
+      continue;
+    }
+
+    swallowNextLineFeed = false;
+
+    if (character == '\b' || character == 0x7F) {
+      if (commandBuffer.length() > 0) {
+        commandBuffer.remove(commandBuffer.length() - 1);
+        Serial.print("\b \b");
+      }
+
+      continue;
+    }
+
+    if (character < ' ' || character > '~') {
       continue;
     }
 
     if (commandBuffer.length() < 63) {
       commandBuffer += character;
+      Serial.write(character);
     }
   }
 }
@@ -368,9 +268,10 @@ void setup() {
   displayProbe = display.probeController();
   sdStatus = inspectSdCard();
 
-  showInventory(systemReport, displayProbe, sdStatus);
+  showOverviewPage(display, systemReport, displayProbe, sdStatus);
   printInventory();
   printHelp();
+  printPrompt();
 }
 
 void loop() {

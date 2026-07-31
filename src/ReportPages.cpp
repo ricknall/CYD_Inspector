@@ -38,7 +38,8 @@ void title(CydDisplay& display, const String& text) {
 void showOverviewPage(CydDisplay& display,
                       const SystemReport& system,
                       const DisplayProbe& probe,
-                      const SdStatus& sd) {
+                      const SdStatus& sd,
+                      const BoardProfile profile) {
   title(display, "CYD BOARD INSPECTOR");
   display.text(10, 32, "DISPLAY SPI: WORKING", CYAN, 2);
   display.text(
@@ -47,7 +48,12 @@ void showOverviewPage(CydDisplay& display,
       String("DISPLAY IC: ") + displayControllerName(probe.controller),
       GREEN,
       2);
-  display.text(10, 76, "BOARD PROFILE: MANUAL", GREEN, 2);
+  display.text(
+      10,
+      76,
+      String("BOARD: ") + boardProfileShortName(profile),
+      boardProfileIsKnown(profile) ? GREEN : AMBER,
+      2);
   display.text(10, 98, sdDisplayText(sd), AMBER, 2);
 
   display.text(10, 122, "MCU: " + system.chipModel, WHITE, 2);
@@ -74,6 +80,22 @@ void showOverviewPage(CydDisplay& display,
       2);
 
   display.text(10, 220, "TYPE HELP IN SERIAL MONITOR", DIM, 1);
+}
+
+void showProfilePage(CydDisplay& display, const BoardProfile profile) {
+  title(display, "BOARD PROFILE");
+  display.text(
+      10,
+      38,
+      boardProfileShortName(profile),
+      boardProfileIsKnown(profile) ? GREEN : AMBER,
+      3);
+  display.text(10, 82, "HUMAN-ASSISTED RESULT", CYAN, 2);
+  display.text(10, 116, "COUNT USB CONNECTORS", WHITE, 2);
+  display.text(10, 142, "PROFILE 1 = ONE USB", WHITE, 2);
+  display.text(10, 164, "PROFILE 2 = TWO USB", WHITE, 2);
+  display.text(10, 198, "DOES NOT PROVE PINS", AMBER, 2);
+  display.text(10, 224, "TYPE PROFILE IN SERIAL", DIM, 1);
 }
 
 void showSystemPage(CydDisplay& display, const SystemReport& system) {

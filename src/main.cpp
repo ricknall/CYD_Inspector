@@ -1,6 +1,7 @@
 #include <Arduino.h>
 
 #include "BoardConfig.h"
+#include "BoardProfile.h"
 #include "CydDisplay.h"
 #include "PeripheralReport.h"
 #include "ReportPages.h"
@@ -13,6 +14,7 @@ CydDisplay display;
 SystemReport systemReport;
 DisplayProbe displayProbe;
 SdStatus sdStatus;
+BoardProfile boardProfile = BoardProfile::Unknown;
 String commandBuffer;
 bool swallowNextLineFeed = false;
 
@@ -72,7 +74,7 @@ void printDisplayReport(const DisplayProbe& probe) {
 void printInventory() {
   Serial.println();
   Serial.println("=== CYD BOARD INSPECTOR REPORT ===");
-  Serial.println("Board identity and USB connector count require inspection.");
+  printBoardProfileReport(boardProfile);
   printSystemReport(systemReport);
   printDisplayReport(displayProbe);
   printPeripheralReport(sdStatus);
@@ -80,6 +82,14 @@ void printInventory() {
 
 void printJsonReport() {
   Serial.println('{');
+  Serial.println("  \"board\": {");
+  Serial.printf("    \"profile\": \"%s\",\n",
+                boardProfileJsonName(boardProfile));
+  Serial.printf("    \"usb_connector_count\": %u,\n",
+                boardProfile == BoardProfile::ClassicSingleUsb ? 1U :
+                boardProfile == BoardProfile::Cyd2Usb ? 2U : 0U);
+  Serial.println("    \"selection_method\": \"human_assisted\"");
+  Serial.println("  },");
   Serial.println("  \"system\": {");
   Serial.printf("    \"mcu\": \"%s\",\n", systemReport.chipModel.c_str());
   Serial.printf("    \"revision\": %u,\n",
@@ -161,6 +171,10 @@ void printHelp() {
   Serial.println("CYD Inspector serial commands:");
   Serial.println("  help         Show this command list");
   Serial.println("  report       Print the complete human-readable report");
+  Serial.println("  profile      Show board-profile selection instructions");
+  Serial.println("  profile 1    Select classic CYD with one USB connector");
+  Serial.println("  profile 2    Select CYD2USB with two USB connectors");
+  Serial.println("  profile clear  Clear the human-assisted selection");
   Serial.println("  system       Print MCU, memory, reset, and software details");
   Serial.println("  display      Print display profile and probe details");
   Serial.println("  peripherals  Print SD and peripheral-assumption details");
@@ -179,8 +193,36 @@ void runCommand(String command) {
   if (command == "help") {
     printHelp();
   } else if (command == "report") {
-    showOverviewPage(display, systemReport, displayProbe, sdStatus);
+    showOverviewPage(
+        display, systemReport, displayProbe, sdStatus, boardProfile);
     printInventory();
+  } else if (command == "profile") {
+    showProfilePage(display, boardProfile);
+    printBoardProfileReport(boardProfile);
+  } else if (command.startsWith("profile ")) {
+    String argument = command.substring(8);
+    argument.trim();
+
+    if (argument == "clear" || argument == "unknown" || argument == "0") {
+      boardProfile = BoardProfile::Unknown;
+      Serial.println("Board profile selection cleared.");
+    } else {
+      const BoardProfile selected = boardProfileFromArgument(argument);
+
+      if (!boardProfileIsKnown(selected)) {
+        Serial.printf("Unknown profile choice: %s\n", argument.c_str());
+        Serial.println("Use 'profile 1', 'profile 2', or 'profile clear'.");
+        showProfilePage(display, boardProfile);
+        return;
+      }
+
+      boardProfile = selected;
+      Serial.printf("Board profile selected: %s\n",
+                    boardProfileName(boardProfile));
+    }
+
+    showOverviewPage(
+        display, systemReport, displayProbe, sdStatus, boardProfile);
   } else if (command == "system") {
     showSystemPage(display, systemReport);
     printSystemReport(systemReport);
@@ -268,7 +310,8 @@ void setup() {
   displayProbe = display.probeController();
   sdStatus = inspectSdCard();
 
-  showOverviewPage(display, systemReport, displayProbe, sdStatus);
+  showOverviewPage(
+      display, systemReport, displayProbe, sdStatus, boardProfile);
   printInventory();
   printHelp();
   printPrompt();

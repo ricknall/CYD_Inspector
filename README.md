@@ -1,9 +1,9 @@
 # CYD Board Inspector — PlatformIO Edition
 
-A native PlatformIO conversion of the original single-file Arduino sketch.
-It identifies the two-USB Cheap Yellow Display family by exercising the known
-ST7789 display path and reports the ESP32 model, core count, revision, flash
-capacity, and PSRAM status.
+A native PlatformIO CYD diagnostic utility. It exercises the known-compatible
+display path; reports the ESP32, flash, PSRAM, display, and SD findings; and
+records a human-assisted single-USB or two-USB board-family selection without
+guessing peripheral pin mappings.
 
 ## Why this is a real PlatformIO project
 
@@ -37,16 +37,18 @@ Build, Upload, and Monitor operations.
 
 ## What success looks like
 
-The LCD should show:
+The LCD overview should show:
 
 - `CYD BOARD INSPECTOR`
-- `DISPLAY PATH: ST7789`
-- `ESP32-2432S028`
-- `CYD2USB / TWO USB`
+- `DISPLAY SPI: WORKING`
+- the probed display-controller result
+- `BOARD: UNKNOWN` until a profile is selected
 - MCU, core, revision, flash, and PSRAM information
 
-If that page is readable, the tested display path matches the expected two-USB
-CYD hardware configuration.
+In the 115200-baud Serial Monitor, type `profile 1` for a physically observed
+single-USB board or `profile 2` for a two-USB board. Type `profile clear` to
+remove the selection. Connector count identifies the physical family; it does
+not prove touch, RGB LED, speaker, or light-sensor pin mappings.
 
 ## Optional browser-flash image
 

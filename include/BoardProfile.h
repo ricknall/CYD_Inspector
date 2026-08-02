@@ -13,4 +13,7 @@ const char* boardProfileShortName(BoardProfile profile);
 const char* boardProfileJsonName(BoardProfile profile);
 BoardProfile boardProfileFromArgument(String argument);
 bool boardProfileIsKnown(BoardProfile profile);
+bool loadBoardProfile(BoardProfile& profile);
+bool saveBoardProfile(BoardProfile profile);
+bool clearBoardProfile();
 void printBoardProfileReport(BoardProfile profile);

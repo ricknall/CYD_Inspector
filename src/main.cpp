@@ -15,6 +15,7 @@ SystemReport systemReport;
 DisplayProbe displayProbe;
 SdStatus sdStatus;
 BoardProfile boardProfile = BoardProfile::Unknown;
+bool boardProfilePersisted = false;
 String commandBuffer;
 bool swallowNextLineFeed = false;
 
@@ -75,6 +76,8 @@ void printInventory() {
   Serial.println();
   Serial.println("=== CYD BOARD INSPECTOR REPORT ===");
   printBoardProfileReport(boardProfile);
+  Serial.printf("Saved across resets: %s\n",
+                boardProfilePersisted ? "YES" : "NO");
   printSystemReport(systemReport);
   printDisplayReport(displayProbe);
   printPeripheralReport(sdStatus);
@@ -88,7 +91,9 @@ void printJsonReport() {
   Serial.printf("    \"usb_connector_count\": %u,\n",
                 boardProfile == BoardProfile::ClassicSingleUsb ? 1U :
                 boardProfile == BoardProfile::Cyd2Usb ? 2U : 0U);
-  Serial.println("    \"selection_method\": \"human_assisted\"");
+  Serial.println("    \"selection_method\": \"human_assisted\",");
+  Serial.printf("    \"persisted\": %s\n",
+                boardProfilePersisted ? "true" : "false");
   Serial.println("  },");
   Serial.println("  \"system\": {");
   Serial.printf("    \"mcu\": \"%s\",\n", systemReport.chipModel.c_str());
@@ -199,13 +204,23 @@ void runCommand(String command) {
   } else if (command == "profile") {
     showProfilePage(display, boardProfile);
     printBoardProfileReport(boardProfile);
+    Serial.printf("Saved across resets: %s\n",
+                  boardProfilePersisted ? "YES" : "NO");
   } else if (command.startsWith("profile ")) {
     String argument = command.substring(8);
     argument.trim();
 
     if (argument == "clear" || argument == "unknown" || argument == "0") {
       boardProfile = BoardProfile::Unknown;
-      Serial.println("Board profile selection cleared.");
+      boardProfilePersisted = false;
+
+      if (clearBoardProfile()) {
+        Serial.println("Board profile selection and saved value cleared.");
+      } else {
+        Serial.println(
+            "WARNING: profile cleared for this session, but saved-value "
+            "removal failed.");
+      }
     } else {
       const BoardProfile selected = boardProfileFromArgument(argument);
 
@@ -217,8 +232,11 @@ void runCommand(String command) {
       }
 
       boardProfile = selected;
+      boardProfilePersisted = saveBoardProfile(boardProfile);
       Serial.printf("Board profile selected: %s\n",
                     boardProfileName(boardProfile));
+      Serial.printf("Saved across resets: %s\n",
+                    boardProfilePersisted ? "YES" : "NO - SAVE FAILED");
     }
 
     showOverviewPage(
@@ -304,6 +322,7 @@ void setup() {
   Serial.begin(115200);
   delay(300);
 
+  boardProfilePersisted = loadBoardProfile(boardProfile);
   systemReport = collectSystemReport();
 
   display.begin();

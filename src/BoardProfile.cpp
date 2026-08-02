@@ -1,5 +1,14 @@
 #include "BoardProfile.h"
 
+#include <Preferences.h>
+
+namespace {
+
+constexpr char PREFERENCES_NAMESPACE[] = "cyd-inspector";
+constexpr char PROFILE_KEY[] = "board";
+
+}  // namespace
+
 const char* boardProfileName(const BoardProfile profile) {
   switch (profile) {
     case BoardProfile::ClassicSingleUsb:
@@ -53,6 +62,56 @@ BoardProfile boardProfileFromArgument(String argument) {
 
 bool boardProfileIsKnown(const BoardProfile profile) {
   return profile != BoardProfile::Unknown;
+}
+
+bool loadBoardProfile(BoardProfile& profile) {
+  profile = BoardProfile::Unknown;
+
+  Preferences preferences;
+  if (!preferences.begin(PREFERENCES_NAMESPACE, true)) {
+    return false;
+  }
+
+  const uint8_t storedValue = preferences.getUChar(PROFILE_KEY, 0);
+  preferences.end();
+
+  const BoardProfile storedProfile =
+      static_cast<BoardProfile>(storedValue);
+  if (!boardProfileIsKnown(storedProfile) ||
+      storedProfile > BoardProfile::Cyd2Usb) {
+    return false;
+  }
+
+  profile = storedProfile;
+  return true;
+}
+
+bool saveBoardProfile(const BoardProfile profile) {
+  if (!boardProfileIsKnown(profile)) {
+    return false;
+  }
+
+  Preferences preferences;
+  if (!preferences.begin(PREFERENCES_NAMESPACE, false)) {
+    return false;
+  }
+
+  const size_t bytesWritten = preferences.putUChar(
+      PROFILE_KEY, static_cast<uint8_t>(profile));
+  preferences.end();
+  return bytesWritten == sizeof(uint8_t);
+}
+
+bool clearBoardProfile() {
+  Preferences preferences;
+  if (!preferences.begin(PREFERENCES_NAMESPACE, false)) {
+    return false;
+  }
+
+  const bool cleared =
+      !preferences.isKey(PROFILE_KEY) || preferences.remove(PROFILE_KEY);
+  preferences.end();
+  return cleared;
 }
 
 void printBoardProfileReport(const BoardProfile profile) {

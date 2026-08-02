@@ -3,7 +3,8 @@
 A native PlatformIO CYD diagnostic utility. It exercises the known-compatible
 display path; reports the ESP32, flash, PSRAM, display, and SD findings; and
 records a human-assisted single-USB or two-USB board-family selection without
-guessing peripheral pin mappings.
+guessing peripheral pin mappings. The selected profile is saved in ESP32
+nonvolatile storage and restored after reset or power loss.
 
 ## Why this is a real PlatformIO project
 
@@ -47,8 +48,10 @@ The LCD overview should show:
 
 In the 115200-baud Serial Monitor, type `profile 1` for a physically observed
 single-USB board or `profile 2` for a two-USB board. Type `profile clear` to
-remove the selection. Connector count identifies the physical family; it does
-not prove touch, RGB LED, speaker, or light-sensor pin mappings.
+remove both the active and saved selection. Reset the board after selecting or
+clearing a profile to verify that the choice was retained or removed.
+Connector count identifies the physical family; it does not prove touch, RGB
+LED, speaker, or light-sensor pin mappings.
 
 ## Optional browser-flash image
 

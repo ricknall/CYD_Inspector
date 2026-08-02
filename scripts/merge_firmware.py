@@ -20,11 +20,11 @@ def _first_existing(paths):
     return None
 
 
-def merge_firmware(source, target, build_env):
-    project_dir = Path(build_env.subst("$PROJECT_DIR"))
-    build_dir = Path(build_env.subst("$BUILD_DIR"))
+def merge_firmware(source, target, env):
+    project_dir = Path(env.subst("$PROJECT_DIR"))
+    build_dir = Path(env.subst("$BUILD_DIR"))
 
-    platform = build_env.PioPlatform()
+    platform = env.PioPlatform()
     esptool_package = Path(platform.get_package_dir("tool-esptoolpy"))
     framework_package = Path(
         platform.get_package_dir("framework-arduinoespressif32")
@@ -55,24 +55,24 @@ def merge_firmware(source, target, build_env):
         raise RuntimeError("Cannot create merged image; missing: " + ", ".join(missing))
 
     dist_dir = project_dir / "dist"
-    web_dir = project_dir / "web"
+    docs_dir = project_dir / "docs"
     dist_dir.mkdir(exist_ok=True)
-    web_dir.mkdir(exist_ok=True)
+    docs_dir.mkdir(exist_ok=True)
 
     merged = dist_dir / "CYD_Board_Inspector.merged.bin"
     command = [
-        build_env.subst("$PYTHONEXE"),
+        env.subst("$PYTHONEXE"),
         str(esptool),
         "--chip",
         "esp32",
-        "merge_bin",
+        "merge-bin",
         "-o",
         str(merged),
-        "--flash_mode",
+        "--flash-mode",
         "dio",
-        "--flash_freq",
+        "--flash-freq",
         "40m",
-        "--flash_size",
+        "--flash-size",
         "4MB",
         "0x1000",
         str(required["bootloader"]),
@@ -86,10 +86,10 @@ def merge_firmware(source, target, build_env):
 
     print("Creating browser-flashable merged image...")
     subprocess.run(command, check=True)
-    shutil.copy2(merged, web_dir / merged.name)
+    shutil.copy2(merged, docs_dir / merged.name)
     shutil.copy2(required["application"], dist_dir / "CYD_Board_Inspector.bin")
     print(f"Merged image: {merged}")
-    print(f"Web installer copy: {web_dir / merged.name}")
+    print(f"GitHub Pages installer copy: {docs_dir / merged.name}")
 
 
 env.AddCustomTarget(

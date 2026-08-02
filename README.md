@@ -13,7 +13,7 @@ nonvolatile storage and restored after reset or power loss.
 - Board-specific constants live under `include/`.
 - The display driver is separated from the diagnostic application.
 - No external libraries are required.
-- A custom `merged` target can produce a browser-flashable image later.
+- A custom `merged` target produces the image used by the browser installer.
 
 ## Open it
 
@@ -53,7 +53,19 @@ clearing a profile to verify that the choice was retained or removed.
 Connector count identifies the physical family; it does not prove touch, RGB
 LED, speaker, or light-sensor pin mappings.
 
-## Optional browser-flash image
+## Browser installer
+
+The public installer is designed for GitHub Pages at:
+
+```text
+https://ricknall.github.io/CYD_Inspector/
+```
+
+GitHub Pages must be configured to deploy from the `main` branch and `/docs`
+folder. The installer requires desktop Chrome or Edge and a data-capable USB
+cable. Installing erases the target board's existing firmware and settings.
+
+### Build the installer firmware
 
 After the normal build works, run the custom target:
 
@@ -67,10 +79,12 @@ It creates:
 
 ```text
 dist/CYD_Board_Inspector.merged.bin
-web/CYD_Board_Inspector.merged.bin
+docs/CYD_Board_Inspector.merged.bin
 ```
 
-The `web/manifest.json` file expects the merged image in the `web` directory.
+The `docs/manifest.json` file expects the merged image in the `docs` directory.
+Commit the generated `docs/CYD_Board_Inspector.merged.bin` with the installer
+page when preparing a browser-installable release.
 
 ## Build environment
 

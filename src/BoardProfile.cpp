@@ -68,7 +68,9 @@ bool loadBoardProfile(BoardProfile& profile) {
   profile = BoardProfile::Unknown;
 
   Preferences preferences;
-  if (!preferences.begin(PREFERENCES_NAMESPACE, true)) {
+  // Open read-write so a freshly erased board can create the namespace.
+  // Read-only mode logs NVS_NOT_FOUND before the first profile is saved.
+  if (!preferences.begin(PREFERENCES_NAMESPACE, false)) {
     return false;
   }
 

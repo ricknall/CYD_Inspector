@@ -168,8 +168,8 @@ void showDisplayPage(CydDisplay& display, const DisplayProbe& probe) {
           bytesToHex(probe.pixelFormat, sizeof(probe.pixelFormat)),
       DIM,
       1);
-  display.text(10, 198, "TOUCH: NOT PROBED", AMBER, 2);
-  display.text(10, 224, "NO CONTROLLER OR PIN ASSUMPTIONS", DIM, 1);
+  display.text(10, 198, "TOUCH: SEE TOUCH REPORT", GREEN, 2);
+  display.text(10, 224, "PROFILE-SPECIFIC MAPPING", DIM, 1);
 }
 
 void showPeripheralPage(CydDisplay& display, const SdStatus& sd) {
@@ -199,16 +199,67 @@ void showPeripheralPage(CydDisplay& display, const SdStatus& sd) {
   display.text(10, 160, "RGB LED: UNASSIGNED", DIM, 2);
   display.text(10, 182, "SPEAKER: UNASSIGNED", DIM, 2);
   display.text(10, 204, "LIGHT: UNASSIGNED", DIM, 2);
-  display.text(10, 228, "BOARD PROFILE REQUIRED", AMBER, 1);
+  display.text(10, 228, "PROFILE DOES NOT PROVE PINS", AMBER, 1);
 }
 
-void showTouchPage(CydDisplay& display) {
+void showTouchPage(CydDisplay& display, const BoardProfile profile) {
   title(display, "TOUCH");
-  display.text(10, 48, "NOT PROBED", AMBER, 3);
-  display.text(10, 88, "CONTROLLER: UNKNOWN", WHITE, 2);
-  display.text(10, 112, "PINS: UNKNOWN", WHITE, 2);
-  display.text(10, 148, "A BOARD PROFILE MUST", CYAN, 2);
-  display.text(10, 172, "PROVE THE PIN MAPPING", CYAN, 2);
-  display.text(10, 214, "NO GPIO GUESSING", DIM, 1);
+
+  if (profile != BoardProfile::ClassicSingleUsb) {
+    display.text(10, 48, "NOT AVAILABLE", AMBER, 3);
+    display.text(10, 94, "NO CANDIDATE MAPPING", WHITE, 2);
+    display.text(10, 126, "SELECTED PROFILE", CYAN, 2);
+    display.text(10, 150, "IS NOT SUPPORTED YET", CYAN, 2);
+    display.text(10, 214, "NO GPIO GUESSING", DIM, 1);
+    return;
+  }
+
+  display.text(10, 42, "MAPPED MONITOR", GREEN, 3);
+  display.text(10, 84, "CONTROLLER: XPT2046", WHITE, 2);
+  display.text(10, 110, "PRESS SCREEN", CYAN, 2);
+  display.text(10, 136, "AN X MARKS EACH TOUCH", CYAN, 2);
+  display.text(10, 176, "TYPE TOUCH AGAIN", WHITE, 2);
+  display.text(10, 198, "TO STOP", WHITE, 2);
+  display.text(10, 226, "ACTIVE RANGE PRINTED IN SERIAL", DIM, 1);
 }
 
+void showCalibrationTarget(CydDisplay& display, const uint8_t targetIndex) {
+  constexpr int16_t targetX[] = {20, 299, 160, 20, 299};
+  constexpr int16_t targetY[] = {20, 20, 120, 219, 219};
+
+  if (targetIndex >= 5) {
+    return;
+  }
+
+  display.fill(BLACK);
+  display.text(126,
+               4,
+               "CAL " + String(targetIndex + 1) + "/5",
+               WHITE,
+               1);
+  display.text(targetX[targetIndex] - 7,
+               targetY[targetIndex] - 10,
+               "X",
+               WHITE,
+               3);
+}
+
+void showCalibrationResult(CydDisplay& display,
+                           const int32_t rawTop,
+                           const int32_t rawBottom,
+                           const int32_t rawLeft,
+                           const int32_t rawRight,
+                           const bool persisted) {
+  title(display, "TOUCH CALIBRATED");
+  display.text(10, 48, "TOP: " + String(rawTop), WHITE, 2);
+  display.text(10, 76, "BOTTOM: " + String(rawBottom), WHITE, 2);
+  display.text(10, 104, "LEFT: " + String(rawLeft), WHITE, 2);
+  display.text(10, 132, "RIGHT: " + String(rawRight), WHITE, 2);
+  display.text(10,
+               166,
+               persisted ? "SAVED ACROSS RESETS" : "SAVE FAILED",
+               persisted ? GREEN : AMBER,
+               2);
+  display.text(10, 198, "CENTER CHECK IN SERIAL", CYAN, 2);
+  display.text(10, 224, "TYPE TOUCH TO VERIFY", GREEN, 1);
+}

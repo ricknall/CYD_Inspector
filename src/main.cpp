@@ -6,6 +6,7 @@
 #include "PeripheralReport.h"
 #include "ReportPages.h"
 #include "SystemReport.h"
+#include "TouchProbe.h"
 
 namespace {
 
@@ -18,6 +19,165 @@ BoardProfile boardProfile = BoardProfile::Unknown;
 bool boardProfilePersisted = false;
 String commandBuffer;
 bool swallowNextLineFeed = false;
+bool touchMonitorActive = false;
+bool touchWasPressed = false;
+uint32_t nextTouchSampleMillis = 0;
+bool calibrationActive = false;
+uint8_t calibrationTargetIndex = 0;
+bool touchCalibrationPersisted = false;
+
+struct CalibrationCapture {
+  uint32_t sumRawX = 0;
+  uint32_t sumRawY = 0;
+  uint16_t sampleCount = 0;
+  uint16_t averageRawX = 0;
+  uint16_t averageRawY = 0;
+};
+
+CalibrationCapture calibrationCaptures[5];
+
+constexpr int32_t CAL_TARGET_LEFT = 20;
+constexpr int32_t CAL_TARGET_RIGHT = 299;
+constexpr int32_t CAL_TARGET_TOP = 20;
+constexpr int32_t CAL_TARGET_BOTTOM = 219;
+
+int32_t extrapolateRaw(const int32_t rawAtStart,
+                       const int32_t rawAtEnd,
+                       const int32_t screenStart,
+                       const int32_t screenEnd,
+                       const int32_t screenWanted) {
+  return rawAtStart +
+      static_cast<int32_t>(
+          (static_cast<int64_t>(rawAtEnd - rawAtStart) *
+           (screenWanted - screenStart)) /
+          (screenEnd - screenStart));
+}
+
+void resetCalibrationCaptures() {
+  for (CalibrationCapture& capture : calibrationCaptures) {
+    capture = CalibrationCapture{};
+  }
+}
+
+void finishCalibration() {
+  const int32_t rawTopInset =
+      (calibrationCaptures[0].averageRawX +
+       calibrationCaptures[1].averageRawX) / 2;
+  const int32_t rawBottomInset =
+      (calibrationCaptures[3].averageRawX +
+       calibrationCaptures[4].averageRawX) / 2;
+  const int32_t rawLeftInset =
+      (calibrationCaptures[0].averageRawY +
+       calibrationCaptures[3].averageRawY) / 2;
+  const int32_t rawRightInset =
+      (calibrationCaptures[1].averageRawY +
+       calibrationCaptures[4].averageRawY) / 2;
+
+  TouchCalibration calibration;
+  calibration.rawTop = extrapolateRaw(rawTopInset,
+                                       rawBottomInset,
+                                       CAL_TARGET_TOP,
+                                       CAL_TARGET_BOTTOM,
+                                       0);
+  calibration.rawBottom = extrapolateRaw(rawTopInset,
+                                          rawBottomInset,
+                                          CAL_TARGET_TOP,
+                                          CAL_TARGET_BOTTOM,
+                                          239);
+  calibration.rawLeft = extrapolateRaw(rawLeftInset,
+                                        rawRightInset,
+                                        CAL_TARGET_LEFT,
+                                        CAL_TARGET_RIGHT,
+                                        0);
+  calibration.rawRight = extrapolateRaw(rawLeftInset,
+                                         rawRightInset,
+                                         CAL_TARGET_LEFT,
+                                         CAL_TARGET_RIGHT,
+                                         319);
+  setTouchCalibration(calibration);
+  touchCalibrationPersisted = saveTouchCalibration(calibration);
+
+  uint16_t centerX = 0;
+  uint16_t centerY = 0;
+  mapTouchCoordinates(calibrationCaptures[2].averageRawX,
+                      calibrationCaptures[2].averageRawY,
+                      centerX,
+                      centerY);
+
+  Serial.println("--- CALIBRATION COMPLETE ---");
+  Serial.printf("Raw edges: top=%ld bottom=%ld left=%ld right=%ld\n",
+                static_cast<long>(calibration.rawTop),
+                static_cast<long>(calibration.rawBottom),
+                static_cast<long>(calibration.rawLeft),
+                static_cast<long>(calibration.rawRight));
+  Serial.printf("Center check: expected=(160,120) measured=(%u,%u)\n",
+                centerX,
+                centerY);
+  Serial.printf("Saved across resets: %s\n",
+                touchCalibrationPersisted ? "YES" : "NO - SAVE FAILED");
+
+  calibrationActive = false;
+  touchMonitorActive = false;
+  touchWasPressed = false;
+  showCalibrationResult(display,
+                        calibration.rawTop,
+                        calibration.rawBottom,
+                        calibration.rawLeft,
+                        calibration.rawRight,
+                        touchCalibrationPersisted);
+}
+
+void printTouchReport() {
+  Serial.println("--- TOUCH ---");
+
+  if (boardProfile != BoardProfile::ClassicSingleUsb) {
+    Serial.println("Controller and pins: not assigned for this profile.");
+    return;
+  }
+
+  const TouchCalibration calibration = getTouchCalibration();
+  Serial.println("Controller: XPT2046-compatible (confirmed)");
+  Serial.printf("Pins: MOSI=%d MISO=%d SCLK=%d CS=%d IRQ=%d\n",
+                cyd::TOUCH_MOSI,
+                cyd::TOUCH_MISO,
+                cyd::TOUCH_SCLK,
+                cyd::TOUCH_CS,
+                cyd::TOUCH_IRQ);
+  Serial.printf("Raw edges: top=%ld bottom=%ld left=%ld right=%ld\n",
+                static_cast<long>(calibration.rawTop),
+                static_cast<long>(calibration.rawBottom),
+                static_cast<long>(calibration.rawLeft),
+                static_cast<long>(calibration.rawRight));
+  Serial.printf("Calibration saved: %s\n",
+                touchCalibrationPersisted ? "YES" : "NO");
+}
+
+void completeCalibrationTarget() {
+  CalibrationCapture& capture =
+      calibrationCaptures[calibrationTargetIndex];
+
+  if (capture.sampleCount == 0) {
+    Serial.println("No valid samples captured; tap the target again.");
+    return;
+  }
+
+  capture.averageRawX = static_cast<uint16_t>(
+      capture.sumRawX / capture.sampleCount);
+  capture.averageRawY = static_cast<uint16_t>(
+      capture.sumRawY / capture.sampleCount);
+  Serial.printf("CAL target %u/5 samples=%u RAW_X=%u RAW_Y=%u\n",
+                calibrationTargetIndex + 1,
+                capture.sampleCount,
+                capture.averageRawX,
+                capture.averageRawY);
+
+  ++calibrationTargetIndex;
+  if (calibrationTargetIndex >= 5) {
+    finishCalibration();
+  } else {
+    showCalibrationTarget(display, calibrationTargetIndex);
+  }
+}
 
 void printHexBytes(const char* label,
                    const uint8_t* values,
@@ -80,6 +240,7 @@ void printInventory() {
                 boardProfilePersisted ? "YES" : "NO");
   printSystemReport(systemReport);
   printDisplayReport(displayProbe);
+  printTouchReport();
   printPeripheralReport(sdStatus);
 }
 
@@ -156,6 +317,21 @@ void printJsonReport() {
   Serial.println();
   Serial.println("  },");
 
+  const TouchCalibration calibration = getTouchCalibration();
+  Serial.println("  \"touch\": {");
+  Serial.printf("    \"supported\": %s,\n",
+                boardProfile == BoardProfile::ClassicSingleUsb
+                    ? "true" : "false");
+  Serial.printf("    \"calibration_saved\": %s,\n",
+                touchCalibrationPersisted ? "true" : "false");
+  Serial.printf("    \"raw_top\": %ld, \"raw_bottom\": %ld,\n",
+                static_cast<long>(calibration.rawTop),
+                static_cast<long>(calibration.rawBottom));
+  Serial.printf("    \"raw_left\": %ld, \"raw_right\": %ld\n",
+                static_cast<long>(calibration.rawLeft),
+                static_cast<long>(calibration.rawRight));
+  Serial.println("  },");
+
   Serial.println("  \"sd\": {");
   Serial.printf("    \"mounted\": %s,\n",
                 sdStatus.mounted ? "true" : "false");
@@ -183,7 +359,9 @@ void printHelp() {
   Serial.println("  system       Print MCU, memory, reset, and software details");
   Serial.println("  display      Print display profile and probe details");
   Serial.println("  peripherals  Print SD and peripheral-assumption details");
-  Serial.println("  touch        Explain current touch status");
+  Serial.println("  touch        Start or stop the mapped touch monitor");
+  Serial.println("  calibrate    Run five-point touch calibration");
+  Serial.println("  calibrate clear  Delete saved touch calibration");
   Serial.println("  json         Print the complete report as JSON");
 }
 
@@ -233,6 +411,12 @@ void runCommand(String command) {
 
       boardProfile = selected;
       boardProfilePersisted = saveBoardProfile(boardProfile);
+      if (boardProfile == BoardProfile::ClassicSingleUsb) {
+        touchCalibrationPersisted = loadTouchCalibration();
+      } else {
+        setTouchCalibration(TouchCalibration{});
+        touchCalibrationPersisted = false;
+      }
       Serial.printf("Board profile selected: %s\n",
                     boardProfileName(boardProfile));
       Serial.printf("Saved across resets: %s\n",
@@ -251,10 +435,62 @@ void runCommand(String command) {
     showPeripheralPage(display, sdStatus);
     printPeripheralReport(sdStatus);
   } else if (command == "touch") {
-    showTouchPage(display);
-    Serial.println(
-        "Touch: not probed yet. No controller or pin mapping will be guessed "
-        "without a selected board profile.");
+    if (calibrationActive) {
+      calibrationActive = false;
+      touchMonitorActive = false;
+      touchWasPressed = false;
+      Serial.println("Touch calibration cancelled.");
+      showOverviewPage(
+          display, systemReport, displayProbe, sdStatus, boardProfile);
+      return;
+    }
+
+    if (touchMonitorActive) {
+      touchMonitorActive = false;
+      touchWasPressed = false;
+      Serial.println("Mapped touch monitor stopped.");
+      showOverviewPage(
+          display, systemReport, displayProbe, sdStatus, boardProfile);
+    } else if (beginTouchProbe(boardProfile)) {
+      touchMonitorActive = true;
+      touchWasPressed = false;
+      nextTouchSampleMillis = 0;
+      showTouchPage(display, boardProfile);
+      printTouchConfiguration(boardProfile);
+    } else {
+      showTouchPage(display, boardProfile);
+      printTouchConfiguration(boardProfile);
+    }
+  } else if (command == "calibrate clear") {
+    calibrationActive = false;
+    touchMonitorActive = false;
+    touchWasPressed = false;
+    touchCalibrationPersisted = false;
+    Serial.printf("Saved touch calibration cleared: %s\n",
+                  clearTouchCalibration() ? "YES" : "NO - CLEAR FAILED");
+    showOverviewPage(
+        display, systemReport, displayProbe, sdStatus, boardProfile);
+  } else if (command == "calibrate") {
+    if (calibrationActive) {
+      calibrationActive = false;
+      touchMonitorActive = false;
+      touchWasPressed = false;
+      Serial.println("Touch calibration cancelled.");
+      showOverviewPage(
+          display, systemReport, displayProbe, sdStatus, boardProfile);
+    } else if (beginTouchProbe(boardProfile)) {
+      resetCalibrationCaptures();
+      calibrationTargetIndex = 0;
+      calibrationActive = true;
+      touchMonitorActive = true;
+      touchWasPressed = false;
+      nextTouchSampleMillis = 0;
+      Serial.println("Five-point calibration started.");
+      Serial.println("Tap and briefly hold each displayed X, then release.");
+      showCalibrationTarget(display, calibrationTargetIndex);
+    } else {
+      printTouchConfiguration(boardProfile);
+    }
   } else if (command == "json") {
     printJsonReport();
   } else {
@@ -316,6 +552,50 @@ void serviceSerialConsole() {
   }
 }
 
+void serviceTouchMonitor() {
+  if (!touchMonitorActive || millis() < nextTouchSampleMillis) {
+    return;
+  }
+
+  nextTouchSampleMillis = millis() + 100;
+  const TouchSample sample = readTouchSample();
+
+  if (sample.irqAsserted) {
+    if (calibrationActive) {
+      CalibrationCapture& capture =
+          calibrationCaptures[calibrationTargetIndex];
+      capture.sumRawX += sample.x;
+      capture.sumRawY += sample.y;
+      ++capture.sampleCount;
+      touchWasPressed = true;
+      return;
+    }
+
+    Serial.printf("TOUCH IRQ=LOW RAW_X=%u RAW_Y=%u SCREEN_X=%u SCREEN_Y=%u Z1=%u Z2=%u\n",
+                  sample.x,
+                  sample.y,
+                  sample.screenX,
+                  sample.screenY,
+                  sample.z1,
+                  sample.z2);
+    // Keep the 10x14 marker fully on-screen. Repeated samples intentionally
+    // leave a short trail so calibration direction and stability are visible.
+    const int markerX = min(static_cast<int>(sample.screenX), 310);
+    const int markerY = min(static_cast<int>(sample.screenY), 226);
+    display.text(markerX, markerY, "X", 0xFFFF, 2);
+    touchWasPressed = true;
+  } else if (touchWasPressed) {
+    if (calibrationActive) {
+      touchWasPressed = false;
+      completeCalibrationTarget();
+      return;
+    }
+
+    Serial.println("TOUCH IRQ=HIGH RELEASED");
+    touchWasPressed = false;
+  }
+}
+
 }  // namespace
 
 void setup() {
@@ -323,6 +603,9 @@ void setup() {
   delay(300);
 
   boardProfilePersisted = loadBoardProfile(boardProfile);
+  if (boardProfile == BoardProfile::ClassicSingleUsb) {
+    touchCalibrationPersisted = loadTouchCalibration();
+  }
   systemReport = collectSystemReport();
 
   display.begin();
@@ -338,5 +621,6 @@ void setup() {
 
 void loop() {
   serviceSerialConsole();
+  serviceTouchMonitor();
   delay(5);
 }

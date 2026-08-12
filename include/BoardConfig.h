@@ -24,4 +24,12 @@ inline constexpr int SD_CS   = 5;
 
 inline constexpr uint32_t SD_SPI_FREQUENCY = 10'000'000;
 
+// Expected XPT2046-compatible touch wiring on the classic single-USB CYD.
+// These pins are used only after the user explicitly selects profile 1.
+inline constexpr int TOUCH_MOSI = 32;
+inline constexpr int TOUCH_MISO = 39;
+inline constexpr int TOUCH_SCLK = 25;
+inline constexpr int TOUCH_CS   = 33;
+inline constexpr int TOUCH_IRQ  = 36;
+
 }  // namespace cyd

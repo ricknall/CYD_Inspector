@@ -14,5 +14,11 @@ void showProfilePage(CydDisplay& display, BoardProfile profile);
 void showSystemPage(CydDisplay& display, const SystemReport& system);
 void showDisplayPage(CydDisplay& display, const DisplayProbe& probe);
 void showPeripheralPage(CydDisplay& display, const SdStatus& sd);
-void showTouchPage(CydDisplay& display);
-
+void showTouchPage(CydDisplay& display, BoardProfile profile);
+void showCalibrationTarget(CydDisplay& display, uint8_t targetIndex);
+void showCalibrationResult(CydDisplay& display,
+                           int32_t rawTop,
+                           int32_t rawBottom,
+                           int32_t rawLeft,
+                           int32_t rawRight,
+                           bool persisted);

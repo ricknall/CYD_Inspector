@@ -91,8 +91,8 @@ void printPeripheralReport(const SdStatus& status) {
     Serial.println("SD card: no card detected or mount failed.");
   }
 
+  Serial.println("Touch mapping: reported in the separate TOUCH section.");
   Serial.println(
-      "Touch/RGB LED/speaker/light sensor: not assumed until a board "
-      "profile is selected.");
+      "RGB LED/speaker/light sensor: pin mappings are not proven by "
+      "board-profile selection.");
 }
-

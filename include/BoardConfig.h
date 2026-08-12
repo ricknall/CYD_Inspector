@@ -43,4 +43,8 @@ inline constexpr int RGB_CANDIDATE_3 = 17;
 // is inverted: darker conditions produce higher raw ADC readings.
 inline constexpr int LIGHT_SENSOR_PIN = 34;
 
+// Confirmed audio path on the tested classic single-USB CYD. GPIO 26 is ESP32
+// DAC2 and feeds the board's SC8002B speaker amplifier and P4 output.
+inline constexpr int SPEAKER_DAC_PIN = 26;
+
 }  // namespace cyd

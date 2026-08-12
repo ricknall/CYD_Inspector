@@ -7,6 +7,7 @@
 #include "PeripheralReport.h"
 #include "ReportPages.h"
 #include "RgbProbe.h"
+#include "SpeakerProbe.h"
 #include "SystemReport.h"
 #include "TouchProbe.h"
 
@@ -370,6 +371,9 @@ void printHelp() {
   Serial.println("  rgb 17       Turn BLUE channel on (active LOW)");
   Serial.println("  rgb off      Turn all RGB channels off");
   Serial.println("  light        Read the confirmed GPIO 34 light sensor");
+  Serial.println("  speaker      Show the confirmed GPIO 26 speaker instructions");
+  Serial.println("  speaker test Play three brief, low-level DAC beeps");
+  Serial.println("  speaker off  Return GPIO 26 to high-impedance input mode");
   Serial.println("  json         Print the complete report as JSON");
 }
 
@@ -546,6 +550,30 @@ void runCommand(String command) {
                          sample.rawMaximum,
                          sample.millivolts);
     }
+  } else if (command == "speaker") {
+    const bool available = beginSpeakerProbe(boardProfile);
+    stopSpeakerProbe();
+    printSpeakerProbeConfiguration(boardProfile);
+    showSpeakerProbePage(display, boardProfile, false);
+    if (available) {
+      Serial.println("Type 'speaker test' when ready; this command is silent.");
+    }
+  } else if (command == "speaker test") {
+    if (!beginSpeakerProbe(boardProfile)) {
+      printSpeakerProbeConfiguration(boardProfile);
+      showSpeakerProbePage(display, boardProfile, false);
+    } else {
+      printSpeakerProbeConfiguration(boardProfile);
+      Serial.println("Playing speaker test now...");
+      const bool played = playSpeakerProbeTest();
+      Serial.println(played ? "SPEAKER TEST COMPLETE" :
+                              "SPEAKER TEST FAILED TO START");
+      showSpeakerProbePage(display, boardProfile, played);
+    }
+  } else if (command == "speaker off") {
+    stopSpeakerProbe();
+    Serial.println("Speaker output disabled; GPIO 26 is high impedance.");
+    showSpeakerProbePage(display, boardProfile, false);
   } else if (command == "json") {
     printJsonReport();
   } else {

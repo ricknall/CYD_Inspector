@@ -31,3 +31,6 @@ void showLightProbePage(CydDisplay& display,
                         uint16_t rawMinimum,
                         uint16_t rawMaximum,
                         uint16_t millivolts);
+void showSpeakerProbePage(CydDisplay& display,
+                          BoardProfile profile,
+                          bool testPlayed);

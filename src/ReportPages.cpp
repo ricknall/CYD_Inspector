@@ -197,7 +197,7 @@ void showPeripheralPage(CydDisplay& display, const SdStatus& sd) {
   }
 
   display.text(10, 160, "RGB LED: 4/16/17 CONFIRMED", GREEN, 2);
-  display.text(10, 182, "SPEAKER: UNASSIGNED", DIM, 2);
+  display.text(10, 182, "SPEAKER: GPIO 26 CONFIRMED", GREEN, 2);
   display.text(10, 204, "LIGHT: GPIO 34 CONFIRMED", GREEN, 2);
   display.text(10, 228, "PROFILE DOES NOT PROVE PINS", AMBER, 1);
 }
@@ -323,4 +323,32 @@ void showLightProbePage(CydDisplay& display,
   display.text(10, 190, "DARKER = HIGHER RAW", CYAN, 2);
   display.text(10, 214, "BRIGHTER = LOWER RAW", CYAN, 2);
   display.text(10, 232, "TYPE LIGHT FOR NEW READING", DIM, 1);
+}
+
+void showSpeakerProbePage(CydDisplay& display,
+                          const BoardProfile profile,
+                          const bool testPlayed) {
+  title(display, "SPEAKER PROBE");
+
+  if (profile != BoardProfile::ClassicSingleUsb) {
+    display.text(10, 50, "NOT AVAILABLE", AMBER, 3);
+    display.text(10, 98, "NO CANDIDATE MAPPING", WHITE, 2);
+    display.text(10, 126, "FOR THIS PROFILE", WHITE, 2);
+    return;
+  }
+
+  display.text(10, 42, "CONFIRMED: GPIO 26", GREEN, 2);
+  display.text(10, 72, "ESP32 DAC2", WHITE, 3);
+  display.text(10, 108, "P4: VO1 TO VO2", WHITE, 2);
+  display.text(10, 132, "USE 100 OHM SERIES", GREEN, 2);
+
+  if (testPlayed) {
+    display.text(10, 160, "THREE BEEPS SENT", AMBER, 3);
+    display.text(10, 202, "DID YOU HEAR THEM?", WHITE, 2);
+  } else {
+    display.text(10, 160, "NO SOUND YET", WHITE, 3);
+    display.text(10, 202, "TYPE SPEAKER TEST", AMBER, 2);
+  }
+
+  display.text(10, 228, "PIN RETURNS TO INPUT AFTER TEST", DIM, 1);
 }

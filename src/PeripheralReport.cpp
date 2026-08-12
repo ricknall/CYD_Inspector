@@ -96,5 +96,6 @@ void printPeripheralReport(const SdStatus& status) {
       "Classic CYD confirmed RGB: GPIO 4=RED, 16=GREEN, 17=BLUE, active LOW.");
   Serial.println(
       "Classic CYD confirmed light sensor: GPIO 34, darker=higher raw ADC.");
-  Serial.println("Speaker: mapping not yet proven; use its individual probe.");
+  Serial.println(
+      "Classic CYD confirmed speaker: GPIO 26 / DAC2 -> SC8002B -> P4.");
 }

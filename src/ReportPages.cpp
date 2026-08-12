@@ -196,9 +196,9 @@ void showPeripheralPage(CydDisplay& display, const SdStatus& sd) {
         2);
   }
 
-  display.text(10, 160, "RGB LED: UNASSIGNED", DIM, 2);
+  display.text(10, 160, "RGB LED: 4/16/17 CONFIRMED", GREEN, 2);
   display.text(10, 182, "SPEAKER: UNASSIGNED", DIM, 2);
-  display.text(10, 204, "LIGHT: UNASSIGNED", DIM, 2);
+  display.text(10, 204, "LIGHT: GPIO 34 CONFIRMED", GREEN, 2);
   display.text(10, 228, "PROFILE DOES NOT PROVE PINS", AMBER, 1);
 }
 
@@ -276,10 +276,10 @@ void showRgbProbePage(CydDisplay& display,
     return;
   }
 
-  display.text(10, 42, "ACTIVE LOW CANDIDATES", CYAN, 2);
-  display.text(10, 72, "GPIO 4", WHITE, 2);
-  display.text(110, 72, "GPIO 16", WHITE, 2);
-  display.text(220, 72, "GPIO 17", WHITE, 2);
+  display.text(10, 42, "CONFIRMED ACTIVE LOW", GREEN, 2);
+  display.text(10, 72, "4 RED", WHITE, 2);
+  display.text(110, 72, "16 GREEN", WHITE, 2);
+  display.text(230, 72, "17 BLUE", WHITE, 2);
 
   if (activePin < 0) {
     display.text(10, 116, "ALL CHANNELS OFF", GREEN, 3);
@@ -292,6 +292,35 @@ void showRgbProbePage(CydDisplay& display,
   }
 
   display.text(10, 166, "LOOK AT LED ON BACK", WHITE, 2);
-  display.text(10, 194, "REPORT OBSERVED COLOR", WHITE, 2);
+  display.text(10, 194, "MAPPING IS CONFIRMED", GREEN, 2);
   display.text(10, 224, "RGB 4 / 16 / 17 / OFF", DIM, 1);
+}
+
+void showLightProbePage(CydDisplay& display,
+                        const BoardProfile profile,
+                        const uint16_t rawAverage,
+                        const uint16_t rawMinimum,
+                        const uint16_t rawMaximum,
+                        const uint16_t millivolts) {
+  title(display, "LIGHT SENSOR PROBE");
+
+  if (profile != BoardProfile::ClassicSingleUsb) {
+    display.text(10, 50, "NOT AVAILABLE", AMBER, 3);
+    display.text(10, 98, "NO CANDIDATE MAPPING", WHITE, 2);
+    display.text(10, 126, "FOR THIS PROFILE", WHITE, 2);
+    return;
+  }
+
+  display.text(10, 42, "CONFIRMED: GPIO 34", GREEN, 2);
+  display.text(10, 76, "RAW AVG: " + String(rawAverage), WHITE, 3);
+  display.text(10,
+               116,
+               "RANGE: " + String(rawMinimum) + " TO " +
+                   String(rawMaximum),
+               WHITE,
+               2);
+  display.text(10, 148, "MILLIVOLTS: " + String(millivolts), GREEN, 2);
+  display.text(10, 190, "DARKER = HIGHER RAW", CYAN, 2);
+  display.text(10, 214, "BRIGHTER = LOWER RAW", CYAN, 2);
+  display.text(10, 232, "TYPE LIGHT FOR NEW READING", DIM, 1);
 }

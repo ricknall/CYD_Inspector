@@ -3,6 +3,7 @@
 #include "BoardConfig.h"
 #include "BoardProfile.h"
 #include "CydDisplay.h"
+#include "LightProbe.h"
 #include "PeripheralReport.h"
 #include "ReportPages.h"
 #include "RgbProbe.h"
@@ -363,11 +364,12 @@ void printHelp() {
   Serial.println("  touch        Start or stop the mapped touch monitor");
   Serial.println("  calibrate    Run five-point touch calibration");
   Serial.println("  calibrate clear  Delete saved touch calibration");
-  Serial.println("  rgb          Show RGB candidate pins and current state");
-  Serial.println("  rgb 4        Drive only GPIO 4 LOW (candidate ON)");
-  Serial.println("  rgb 16       Drive only GPIO 16 LOW (candidate ON)");
-  Serial.println("  rgb 17       Drive only GPIO 17 LOW (candidate ON)");
-  Serial.println("  rgb off      Drive all RGB candidates HIGH (OFF)");
+  Serial.println("  rgb          Show confirmed RGB mapping and current state");
+  Serial.println("  rgb 4        Turn RED channel on (active LOW)");
+  Serial.println("  rgb 16       Turn GREEN channel on (active LOW)");
+  Serial.println("  rgb 17       Turn BLUE channel on (active LOW)");
+  Serial.println("  rgb off      Turn all RGB channels off");
+  Serial.println("  light        Read the confirmed GPIO 34 light sensor");
   Serial.println("  json         Print the complete report as JSON");
 }
 
@@ -528,6 +530,21 @@ void runCommand(String command) {
         Serial.println("Observe the physical LED and report its color.");
       }
       showRgbProbePage(display, boardProfile, rgbProbeActivePin());
+    }
+  } else if (command == "light") {
+    if (!beginLightProbe(boardProfile)) {
+      showLightProbePage(display, boardProfile, 0, 0, 0, 0);
+      printLightProbeConfiguration(boardProfile);
+    } else {
+      const LightSample sample = readLightSample();
+      printLightProbeConfiguration(boardProfile);
+      printLightSample(sample);
+      showLightProbePage(display,
+                         boardProfile,
+                         sample.rawAverage,
+                         sample.rawMinimum,
+                         sample.rawMaximum,
+                         sample.millivolts);
     }
   } else if (command == "json") {
     printJsonReport();

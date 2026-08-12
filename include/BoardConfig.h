@@ -32,11 +32,15 @@ inline constexpr int TOUCH_SCLK = 25;
 inline constexpr int TOUCH_CS   = 33;
 inline constexpr int TOUCH_IRQ  = 36;
 
-// Candidate active-low RGB LED channels on the classic single-USB CYD.
-// The physical color attached to each GPIO must be confirmed on the board;
-// published references disagree on the color assignment.
+// Confirmed active-low RGB LED channels on the tested classic single-USB CYD.
+// GPIO 4 = red, GPIO 16 = green, and GPIO 17 = blue.
 inline constexpr int RGB_CANDIDATE_1 = 4;
 inline constexpr int RGB_CANDIDATE_2 = 16;
 inline constexpr int RGB_CANDIDATE_3 = 17;
+
+// Confirmed analog light-sensor connection on the tested classic single-USB
+// CYD. GPIO 34 is input-only, so this reader never drives the pin. The divider
+// is inverted: darker conditions produce higher raw ADC readings.
+inline constexpr int LIGHT_SENSOR_PIN = 34;
 
 }  // namespace cyd

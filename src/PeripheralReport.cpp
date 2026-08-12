@@ -93,6 +93,8 @@ void printPeripheralReport(const SdStatus& status) {
 
   Serial.println("Touch mapping: reported in the separate TOUCH section.");
   Serial.println(
-      "RGB LED/speaker/light sensor: not assumed solely from board-profile "
-      "selection; use their individual probes.");
+      "Classic CYD confirmed RGB: GPIO 4=RED, 16=GREEN, 17=BLUE, active LOW.");
+  Serial.println(
+      "Classic CYD confirmed light sensor: GPIO 34, darker=higher raw ADC.");
+  Serial.println("Speaker: mapping not yet proven; use its individual probe.");
 }

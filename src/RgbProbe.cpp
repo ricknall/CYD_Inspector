@@ -77,14 +77,14 @@ void printRgbProbeConfiguration(const BoardProfile profile) {
     return;
   }
 
-  Serial.println("Candidate GPIOs: 4, 16, 17");
-  Serial.println("Candidate polarity: active LOW");
-  Serial.println("Only one candidate is driven LOW at a time.");
+  Serial.println("Confirmed mapping: GPIO 4=RED, GPIO 16=GREEN, GPIO 17=BLUE");
+  Serial.println("Confirmed polarity: active LOW");
+  Serial.println("Only one channel is driven LOW at a time.");
 
   if (!initialized || activePin < 0) {
-    Serial.println("Current state: all candidate channels OFF");
+    Serial.println("Current state: all RGB channels OFF");
   } else {
-    Serial.printf("Current state: GPIO %d ON; other candidates OFF\n",
+    Serial.printf("Current state: GPIO %d ON; other RGB channels OFF\n",
                   activePin);
   }
 

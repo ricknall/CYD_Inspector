@@ -25,3 +25,9 @@ void showCalibrationResult(CydDisplay& display,
 void showRgbProbePage(CydDisplay& display,
                       BoardProfile profile,
                       int activePin);
+void showLightProbePage(CydDisplay& display,
+                        BoardProfile profile,
+                        uint16_t rawAverage,
+                        uint16_t rawMinimum,
+                        uint16_t rawMaximum,
+                        uint16_t millivolts);

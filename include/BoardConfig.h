@@ -32,4 +32,11 @@ inline constexpr int TOUCH_SCLK = 25;
 inline constexpr int TOUCH_CS   = 33;
 inline constexpr int TOUCH_IRQ  = 36;
 
+// Candidate active-low RGB LED channels on the classic single-USB CYD.
+// The physical color attached to each GPIO must be confirmed on the board;
+// published references disagree on the color assignment.
+inline constexpr int RGB_CANDIDATE_1 = 4;
+inline constexpr int RGB_CANDIDATE_2 = 16;
+inline constexpr int RGB_CANDIDATE_3 = 17;
+
 }  // namespace cyd

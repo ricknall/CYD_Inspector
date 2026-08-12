@@ -5,6 +5,7 @@
 #include "CydDisplay.h"
 #include "PeripheralReport.h"
 #include "ReportPages.h"
+#include "RgbProbe.h"
 #include "SystemReport.h"
 #include "TouchProbe.h"
 
@@ -362,6 +363,11 @@ void printHelp() {
   Serial.println("  touch        Start or stop the mapped touch monitor");
   Serial.println("  calibrate    Run five-point touch calibration");
   Serial.println("  calibrate clear  Delete saved touch calibration");
+  Serial.println("  rgb          Show RGB candidate pins and current state");
+  Serial.println("  rgb 4        Drive only GPIO 4 LOW (candidate ON)");
+  Serial.println("  rgb 16       Drive only GPIO 16 LOW (candidate ON)");
+  Serial.println("  rgb 17       Drive only GPIO 17 LOW (candidate ON)");
+  Serial.println("  rgb off      Drive all RGB candidates HIGH (OFF)");
   Serial.println("  json         Print the complete report as JSON");
 }
 
@@ -414,6 +420,7 @@ void runCommand(String command) {
       if (boardProfile == BoardProfile::ClassicSingleUsb) {
         touchCalibrationPersisted = loadTouchCalibration();
       } else {
+        rgbProbeOff();
         setTouchCalibration(TouchCalibration{});
         touchCalibrationPersisted = false;
       }
@@ -490,6 +497,37 @@ void runCommand(String command) {
       showCalibrationTarget(display, calibrationTargetIndex);
     } else {
       printTouchConfiguration(boardProfile);
+    }
+  } else if (command == "rgb") {
+    if (beginRgbProbe(boardProfile)) {
+      showRgbProbePage(display, boardProfile, rgbProbeActivePin());
+    } else {
+      showRgbProbePage(display, boardProfile, -1);
+    }
+    printRgbProbeConfiguration(boardProfile);
+  } else if (command.startsWith("rgb ")) {
+    String argument = command.substring(4);
+    argument.trim();
+
+    if (!beginRgbProbe(boardProfile)) {
+      showRgbProbePage(display, boardProfile, -1);
+      printRgbProbeConfiguration(boardProfile);
+    } else if (argument == "off" || argument == "0") {
+      rgbProbeOff();
+      Serial.println("RGB candidate GPIOs 4, 16, and 17 are OFF.");
+      showRgbProbePage(display, boardProfile, rgbProbeActivePin());
+    } else {
+      const int pin = argument.toInt();
+      if (!rgbProbeSetPin(pin)) {
+        Serial.printf("Invalid RGB candidate: %s\n", argument.c_str());
+        Serial.println("Use rgb 4, rgb 16, rgb 17, or rgb off.");
+      } else {
+        Serial.printf(
+            "GPIO %d driven LOW; GPIOs 4, 16, and 17 otherwise HIGH.\n",
+            pin);
+        Serial.println("Observe the physical LED and report its color.");
+      }
+      showRgbProbePage(display, boardProfile, rgbProbeActivePin());
     }
   } else if (command == "json") {
     printJsonReport();

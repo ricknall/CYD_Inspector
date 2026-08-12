@@ -22,3 +22,6 @@ void showCalibrationResult(CydDisplay& display,
                            int32_t rawLeft,
                            int32_t rawRight,
                            bool persisted);
+void showRgbProbePage(CydDisplay& display,
+                      BoardProfile profile,
+                      int activePin);

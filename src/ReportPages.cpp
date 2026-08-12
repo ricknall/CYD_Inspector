@@ -263,3 +263,35 @@ void showCalibrationResult(CydDisplay& display,
   display.text(10, 198, "CENTER CHECK IN SERIAL", CYAN, 2);
   display.text(10, 224, "TYPE TOUCH TO VERIFY", GREEN, 1);
 }
+
+void showRgbProbePage(CydDisplay& display,
+                      const BoardProfile profile,
+                      const int activePin) {
+  title(display, "RGB LED PIN PROBE");
+
+  if (profile != BoardProfile::ClassicSingleUsb) {
+    display.text(10, 50, "NOT AVAILABLE", AMBER, 3);
+    display.text(10, 98, "NO CANDIDATE MAPPING", WHITE, 2);
+    display.text(10, 126, "FOR THIS PROFILE", WHITE, 2);
+    return;
+  }
+
+  display.text(10, 42, "ACTIVE LOW CANDIDATES", CYAN, 2);
+  display.text(10, 72, "GPIO 4", WHITE, 2);
+  display.text(110, 72, "GPIO 16", WHITE, 2);
+  display.text(220, 72, "GPIO 17", WHITE, 2);
+
+  if (activePin < 0) {
+    display.text(10, 116, "ALL CHANNELS OFF", GREEN, 3);
+  } else {
+    display.text(10,
+                 116,
+                 "GPIO " + String(activePin) + " IS ON",
+                 AMBER,
+                 3);
+  }
+
+  display.text(10, 166, "LOOK AT LED ON BACK", WHITE, 2);
+  display.text(10, 194, "REPORT OBSERVED COLOR", WHITE, 2);
+  display.text(10, 224, "RGB 4 / 16 / 17 / OFF", DIM, 1);
+}

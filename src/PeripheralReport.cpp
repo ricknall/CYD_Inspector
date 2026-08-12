@@ -93,6 +93,6 @@ void printPeripheralReport(const SdStatus& status) {
 
   Serial.println("Touch mapping: reported in the separate TOUCH section.");
   Serial.println(
-      "RGB LED/speaker/light sensor: pin mappings are not proven by "
-      "board-profile selection.");
+      "RGB LED/speaker/light sensor: not assumed solely from board-profile "
+      "selection; use their individual probes.");
 }

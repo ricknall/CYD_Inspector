@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Install CYD Board Inspector</title>
+    <title>Install CYD Board Inspector v1.2.0</title>
     <script
       type="module"
       src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js?module">
@@ -20,6 +20,7 @@
         line-height: 1.55;
       }
       h1 { line-height: 1.15; }
+      .version { font-weight: 700; color: #2da44e; }
       .warning {
         border-left: .35rem solid #d97706;
         padding: .7rem 1rem;
@@ -41,29 +42,34 @@
   </head>
   <body>
     <h1>CYD Board Inspector</h1>
+    <p class="version">Version 1.2.0 — classic single-USB CYD</p>
     <p>
-      Install the hardware diagnostic utility on a compatible ESP32
-      Cheap Yellow Display directly from Chrome or Edge on a desktop computer.
+      Install the hardware diagnostic utility directly from desktop Chrome or
+      Edge. This version includes persistent touch calibration and confirmed
+      RGB LED, light-sensor, and speaker mappings for the tested classic
+      single-USB CYD.
     </p>
     <div class="warning">
       <strong>This installation erases the board.</strong>
-      Existing firmware and its saved settings will be replaced.
+      Existing firmware and saved settings, including prior touch calibration,
+      will be replaced.
     </div>
     <ol>
       <li>Connect the CYD with a data-capable USB cable.</li>
-      <li>Close PlatformIO Serial Monitor and other programs using its COM port.</li>
-      <li>Select <strong>Install CYD Board Inspector</strong> below.</li>
+      <li>Close PlatformIO Serial Monitor and anything else using its COM port.</li>
+      <li>Select <strong>Install CYD Board Inspector v1.2.0</strong>.</li>
       <li>Choose the CYD serial port when the browser asks.</li>
     </ol>
     <esp-web-install-button manifest="manifest.json">
-      <button slot="activate">Install CYD Board Inspector</button>
+      <button slot="activate">Install CYD Board Inspector v1.2.0</button>
       <span slot="unsupported">
         This browser cannot install over Web Serial. Use desktop Chrome or Edge.
       </span>
     </esp-web-install-button>
     <p>
-      After installation, use the installer dialog's logs and console at
-      <code>115200</code> baud, or reconnect with a serial terminal.
+      After installation, connect a serial terminal at <code>115200</code> baud
+      and type <code>help</code>. Use <code>profile 1</code> for the classic
+      single-USB board, then run <code>calibrate</code> for that physical screen.
     </p>
     <p>
       Source code and documentation:

@@ -1,57 +1,88 @@
 # CYD Board Inspector — PlatformIO Edition
 
-A native PlatformIO CYD diagnostic utility. It exercises the known-compatible
-display path; reports the ESP32, flash, PSRAM, display, and SD findings; and
-records a human-assisted single-USB or two-USB board-family selection without
-guessing peripheral pin mappings. The selected profile is saved in ESP32
-nonvolatile storage and restored after reset or power loss.
+CYD Board Inspector is a native PlatformIO diagnostic utility for ESP32 Cheap
+Yellow Display boards. It reports the ESP32, flash, memory, display, storage,
+and peripheral findings on both the LCD and the 115200-baud serial console.
 
-## Why this is a real PlatformIO project
+The currently verified peripheral mappings apply to the tested classic
+single-USB CYD. Selecting a board profile is human-assisted and does not assume
+that a visually similar board uses the same wiring.
 
-- `platformio.ini` defines and pins the build environment.
-- Application code lives under `src/`.
-- Board-specific constants live under `include/`.
-- The display driver is separated from the diagnostic application.
-- No external libraries are required.
-- A custom `merged` target produces the image used by the browser installer.
+## Verified on the classic single-USB CYD
 
-## Open it
+- Display SPI path and controller probing
+- XPT2046-compatible resistive touch:
+  - MOSI 32, MISO 39, SCLK 25, CS 33, IRQ 36
+  - five-point calibration with persistent storage
+  - mapped screen-coordinate monitor
+- Active-low RGB LED:
+  - GPIO 4 red
+  - GPIO 16 green
+  - GPIO 17 blue
+- Light sensor on GPIO 34; darker conditions produce higher raw ADC readings
+- Audio on GPIO 26 / ESP32 DAC2 through the SC8002B amplifier to P4
+- MicroSD SPI wiring: MOSI 23, MISO 19, SCLK 18, CS 5
 
-1. Extract the ZIP to a normal directory. Do not work inside 7-Zip.
+The SD interface is reported, but physical media validation remains deferred.
+Peripheral mappings for dual-USB CYD variants are not yet claimed.
+
+## Open the PlatformIO project
+
+1. Extract the project to a normal directory. Do not work inside a ZIP viewer.
 2. In VS Code choose **File > Open Folder**.
 3. Select the folder containing `platformio.ini`.
 4. Allow PlatformIO to download the pinned ESP32 platform and toolchain on the
    first build.
 
-## Build and upload
+## Build, upload, and monitor
 
 1. Connect the CYD through the USB connector that appears in Windows as a COM
    port.
-2. Open the PlatformIO alien-head panel.
-3. Expand **Project Tasks > cyd2usb > General**.
-4. Select **Build**.
-5. After a successful build, select **Upload**.
-6. Select **Monitor** to view the 115200-baud diagnostic output.
+2. Open **PlatformIO > Project Tasks > cyd2usb > General**.
+3. Run **Build**, then **Upload**.
+4. Open **Monitor** at 115200 baud.
 
-The normal PlatformIO toolbar buttons at the bottom of VS Code perform the same
-Build, Upload, and Monitor operations.
+PlatformIO normally detects the port. To force one temporarily from PowerShell:
 
-## What success looks like
+```powershell
+pio run -e cyd2usb -t upload --upload-port COM9
+pio device monitor --port COM9 --baud 115200
+```
 
-The LCD overview should show:
+Replace `COM9` with the port currently assigned by Windows.
 
-- `CYD BOARD INSPECTOR`
-- `DISPLAY SPI: WORKING`
-- the probed display-controller result
-- `BOARD: UNKNOWN` until a profile is selected
-- MCU, core, revision, flash, and PSRAM information
+## Serial commands
 
-In the 115200-baud Serial Monitor, type `profile 1` for a physically observed
-single-USB board or `profile 2` for a two-USB board. Type `profile clear` to
-remove both the active and saved selection. Reset the board after selecting or
-clearing a profile to verify that the choice was retained or removed.
-Connector count identifies the physical family; it does not prove touch, RGB
-LED, speaker, or light-sensor pin mappings.
+```text
+help              Show the command list
+report            Print the complete human-readable report
+profile            Show profile-selection instructions
+profile 1          Select classic CYD with one USB connector
+profile 2          Select CYD2USB with two USB connectors
+profile clear      Clear the saved board selection
+system             Print MCU, memory, reset, and software details
+display            Print display profile and probe details
+peripherals        Print SD and peripheral details
+touch              Start or stop the mapped touch monitor
+calibrate          Run five-point touch calibration and save it
+calibrate clear    Delete saved touch calibration
+rgb                Show confirmed RGB mapping and current state
+rgb 4              Turn red on
+rgb 16             Turn green on
+rgb 17             Turn blue on
+rgb off            Turn all RGB channels off
+light              Read the confirmed GPIO 34 light sensor
+speaker            Show confirmed GPIO 26 speaker instructions
+speaker test       Play three brief, low-level DAC beeps
+speaker off        Return GPIO 26 to high-impedance input mode
+json               Print the complete report as JSON
+```
+
+### Speaker safety
+
+P4 is the amplifier's bridged output. Connect a speaker between P4 VO1 and VO2;
+do not connect either P4 pin to board ground. For the conservative first test,
+place about 100 ohms in series with a small 4–8 ohm speaker.
 
 ## Browser installer
 
@@ -61,33 +92,34 @@ The public installer is designed for GitHub Pages at:
 https://ricknall.github.io/CYD_Inspector/
 ```
 
-GitHub Pages must be configured to deploy from the `main` branch and `/docs`
-folder. The installer requires desktop Chrome or Edge and a data-capable USB
-cable. Installing erases the target board's existing firmware and settings.
+Use desktop Chrome or Edge with a data-capable USB cable. Close PlatformIO's
+Serial Monitor before connecting. Installing erases the board's existing
+firmware and saved settings.
 
-### Build the installer firmware
+### Generate the browser firmware
 
-After the normal build works, run the custom target:
+After a normal build succeeds, run:
 
-```text
+```powershell
 pio run -e cyd2usb -t merged
 ```
 
-Or use **Project Tasks > cyd2usb > Custom > merged**.
-
-It creates:
+Or select **Project Tasks > cyd2usb > Custom > merged**. This creates:
 
 ```text
 dist/CYD_Board_Inspector.merged.bin
+dist/CYD_Board_Inspector.bin
 docs/CYD_Board_Inspector.merged.bin
 ```
 
-The `docs/manifest.json` file expects the merged image in the `docs` directory.
-Commit the generated `docs/CYD_Board_Inspector.merged.bin` with the installer
-page when preparing a browser-installable release.
+The generated `docs/CYD_Board_Inspector.merged.bin` must be committed with the
+installer page when publishing a browser-installable version.
 
-## Build environment
+## Version 1.2.0
 
-The original GitHub workflow used Arduino-ESP32 3.3.1. This project pins the
-corresponding pioarduino platform release so the conversion is not silently
-built against an older Arduino core.
+Version 1.2.0 completes the tested classic single-USB CYD peripheral pass:
+persistent touch calibration, confirmed RGB channels, confirmed GPIO 34 light
+sensor, and the safe GPIO 26 DAC speaker test.
+
+The project pins the pioarduino Espressif platform corresponding to
+Arduino-ESP32 3.3.1. No external libraries are required.

@@ -23,15 +23,22 @@ struct TouchCalibration {
 };
 
 bool beginTouchProbe(BoardProfile profile);
+bool beginTouchIrqCandidateProbe(BoardProfile profile);
+bool beginTouchRawCandidateProbe(BoardProfile profile);
+bool readTouchIrqAsserted();
+void endTouchProbe();
 TouchSample readTouchSample();
 void setTouchCalibration(const TouchCalibration& calibration);
 TouchCalibration getTouchCalibration();
 bool touchCalibrationIsValid(const TouchCalibration& calibration);
-bool saveTouchCalibration(const TouchCalibration& calibration);
-bool loadTouchCalibration();
-bool clearTouchCalibration();
+bool saveTouchCalibration(BoardProfile profile,
+                          const TouchCalibration& calibration);
+bool loadTouchCalibration(BoardProfile profile);
+bool clearTouchCalibration(BoardProfile profile);
 void mapTouchCoordinates(uint16_t rawX,
                          uint16_t rawY,
                          uint16_t& screenX,
                          uint16_t& screenY);
 void printTouchConfiguration(BoardProfile profile);
+void printTouchIrqCandidateConfiguration(BoardProfile profile);
+void printTouchRawCandidateConfiguration(BoardProfile profile);

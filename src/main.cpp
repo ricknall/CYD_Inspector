@@ -13,6 +13,8 @@
 
 namespace {
 
+constexpr char INSPECTOR_VERSION[] = "1.3.0";
+
 CydDisplay display;
 
 SystemReport systemReport;
@@ -23,6 +25,9 @@ bool boardProfilePersisted = false;
 String commandBuffer;
 bool swallowNextLineFeed = false;
 bool touchMonitorActive = false;
+bool touchIrqCandidateActive = false;
+bool touchRawCandidateActive = false;
+bool touchIrqCandidateObserved = false;
 bool touchWasPressed = false;
 uint32_t nextTouchSampleMillis = 0;
 bool calibrationActive = false;
@@ -38,6 +43,15 @@ struct CalibrationCapture {
 };
 
 CalibrationCapture calibrationCaptures[5];
+
+void stopAllTouchMonitoring() {
+  touchMonitorActive = false;
+  touchIrqCandidateActive = false;
+  touchRawCandidateActive = false;
+  touchWasPressed = false;
+  nextTouchSampleMillis = 0;
+  endTouchProbe();
+}
 
 constexpr int32_t CAL_TARGET_LEFT = 20;
 constexpr int32_t CAL_TARGET_RIGHT = 299;
@@ -98,7 +112,8 @@ void finishCalibration() {
                                          CAL_TARGET_RIGHT,
                                          319);
   setTouchCalibration(calibration);
-  touchCalibrationPersisted = saveTouchCalibration(calibration);
+  touchCalibrationPersisted =
+      saveTouchCalibration(boardProfile, calibration);
 
   uint16_t centerX = 0;
   uint16_t centerY = 0;
@@ -122,6 +137,7 @@ void finishCalibration() {
   calibrationActive = false;
   touchMonitorActive = false;
   touchWasPressed = false;
+  endTouchProbe();
   showCalibrationResult(display,
                         calibration.rawTop,
                         calibration.rawBottom,
@@ -133,8 +149,8 @@ void finishCalibration() {
 void printTouchReport() {
   Serial.println("--- TOUCH ---");
 
-  if (boardProfile != BoardProfile::ClassicSingleUsb) {
-    Serial.println("Controller and pins: not assigned for this profile.");
+  if (!boardProfileIsKnown(boardProfile)) {
+    Serial.println("Controller and pins: select a board profile first.");
     return;
   }
 
@@ -238,13 +254,14 @@ void printDisplayReport(const DisplayProbe& probe) {
 void printInventory() {
   Serial.println();
   Serial.println("=== CYD BOARD INSPECTOR REPORT ===");
+  Serial.printf("Firmware: %s\n", INSPECTOR_VERSION);
   printBoardProfileReport(boardProfile);
   Serial.printf("Saved across resets: %s\n",
                 boardProfilePersisted ? "YES" : "NO");
   printSystemReport(systemReport);
   printDisplayReport(displayProbe);
   printTouchReport();
-  printPeripheralReport(sdStatus);
+  printPeripheralReport(sdStatus, boardProfile);
 }
 
 void printJsonReport() {
@@ -323,7 +340,10 @@ void printJsonReport() {
   const TouchCalibration calibration = getTouchCalibration();
   Serial.println("  \"touch\": {");
   Serial.printf("    \"supported\": %s,\n",
-                boardProfile == BoardProfile::ClassicSingleUsb
+                boardProfileIsKnown(boardProfile)
+                    ? "true" : "false");
+  Serial.printf("    \"raw_diagnostic_available\": %s,\n",
+                boardProfile == BoardProfile::Cyd2Usb
                     ? "true" : "false");
   Serial.printf("    \"calibration_saved\": %s,\n",
                 touchCalibrationPersisted ? "true" : "false");
@@ -363,6 +383,8 @@ void printHelp() {
   Serial.println("  display      Print display profile and probe details");
   Serial.println("  peripherals  Print SD and peripheral-assumption details");
   Serial.println("  touch        Start or stop the mapped touch monitor");
+  Serial.println("  touch irq    Passively watch confirmed CYD2USB IRQ on GPIO 36");
+  Serial.println("  touch probe  Run raw CYD2USB XPT2046 diagnostic probe");
   Serial.println("  calibrate    Run five-point touch calibration");
   Serial.println("  calibrate clear  Delete saved touch calibration");
   Serial.println("  rgb          Show confirmed RGB mapping and current state");
@@ -400,9 +422,15 @@ void runCommand(String command) {
     String argument = command.substring(8);
     argument.trim();
 
+    stopAllTouchMonitoring();
+    calibrationActive = false;
+    touchIrqCandidateObserved = false;
+
     if (argument == "clear" || argument == "unknown" || argument == "0") {
       boardProfile = BoardProfile::Unknown;
       boardProfilePersisted = false;
+      setTouchCalibration(TouchCalibration{});
+      touchCalibrationPersisted = false;
 
       if (clearBoardProfile()) {
         Serial.println("Board profile selection and saved value cleared.");
@@ -423,13 +451,10 @@ void runCommand(String command) {
 
       boardProfile = selected;
       boardProfilePersisted = saveBoardProfile(boardProfile);
-      if (boardProfile == BoardProfile::ClassicSingleUsb) {
-        touchCalibrationPersisted = loadTouchCalibration();
-      } else {
+      if (boardProfile == BoardProfile::Cyd2Usb) {
         rgbProbeOff();
-        setTouchCalibration(TouchCalibration{});
-        touchCalibrationPersisted = false;
       }
+      touchCalibrationPersisted = loadTouchCalibration(boardProfile);
       Serial.printf("Board profile selected: %s\n",
                     boardProfileName(boardProfile));
       Serial.printf("Saved across resets: %s\n",
@@ -445,13 +470,63 @@ void runCommand(String command) {
     showDisplayPage(display, displayProbe);
     printDisplayReport(displayProbe);
   } else if (command == "peripherals") {
-    showPeripheralPage(display, sdStatus);
-    printPeripheralReport(sdStatus);
+    showPeripheralPage(display, sdStatus, boardProfile);
+    printPeripheralReport(sdStatus, boardProfile);
+  } else if (command == "touch irq") {
+    if (touchIrqCandidateActive) {
+      stopAllTouchMonitoring();
+      Serial.println("CYD2USB passive touch IRQ probe stopped.");
+      showOverviewPage(
+          display, systemReport, displayProbe, sdStatus, boardProfile);
+    } else {
+      stopAllTouchMonitoring();
+      calibrationActive = false;
+      if (beginTouchIrqCandidateProbe(boardProfile)) {
+        touchIrqCandidateActive = true;
+        touchWasPressed = readTouchIrqAsserted();
+        touchIrqCandidateObserved = touchIrqCandidateObserved ||
+            touchWasPressed;
+        nextTouchSampleMillis = 0;
+        printTouchIrqCandidateConfiguration(boardProfile);
+        Serial.printf("Initial IRQ state: %s\n",
+                      touchWasPressed ? "LOW" : "HIGH");
+        showTouchCandidatePage(display, boardProfile, false);
+      } else {
+        printTouchIrqCandidateConfiguration(boardProfile);
+        showTouchCandidatePage(display, boardProfile, false);
+      }
+    }
+  } else if (command == "touch probe") {
+    if (touchRawCandidateActive) {
+      stopAllTouchMonitoring();
+      Serial.println(
+          "CYD2USB raw touch diagnostic stopped; pins released.");
+      showOverviewPage(
+          display, systemReport, displayProbe, sdStatus, boardProfile);
+    } else if (!touchIrqCandidateObserved) {
+      Serial.println(
+          "Raw diagnostic probe locked: first run 'touch irq' and verify a "
+          "LOW state while pressing the screen.");
+      printTouchIrqCandidateConfiguration(boardProfile);
+      showTouchCandidatePage(display, boardProfile, false);
+    } else {
+      stopAllTouchMonitoring();
+      calibrationActive = false;
+      if (beginTouchRawCandidateProbe(boardProfile)) {
+        touchRawCandidateActive = true;
+        touchWasPressed = false;
+        nextTouchSampleMillis = 0;
+        printTouchRawCandidateConfiguration(boardProfile);
+        showTouchCandidatePage(display, boardProfile, true);
+      } else {
+        printTouchRawCandidateConfiguration(boardProfile);
+        showTouchCandidatePage(display, boardProfile, true);
+      }
+    }
   } else if (command == "touch") {
     if (calibrationActive) {
       calibrationActive = false;
-      touchMonitorActive = false;
-      touchWasPressed = false;
+      stopAllTouchMonitoring();
       Serial.println("Touch calibration cancelled.");
       showOverviewPage(
           display, systemReport, displayProbe, sdStatus, boardProfile);
@@ -459,8 +534,7 @@ void runCommand(String command) {
     }
 
     if (touchMonitorActive) {
-      touchMonitorActive = false;
-      touchWasPressed = false;
+      stopAllTouchMonitoring();
       Serial.println("Mapped touch monitor stopped.");
       showOverviewPage(
           display, systemReport, displayProbe, sdStatus, boardProfile);
@@ -475,19 +549,24 @@ void runCommand(String command) {
       printTouchConfiguration(boardProfile);
     }
   } else if (command == "calibrate clear") {
+    if (!boardProfileIsKnown(boardProfile)) {
+      Serial.println("Select a board profile before clearing calibration.");
+      printTouchConfiguration(boardProfile);
+      return;
+    }
+
     calibrationActive = false;
-    touchMonitorActive = false;
-    touchWasPressed = false;
+    stopAllTouchMonitoring();
     touchCalibrationPersisted = false;
     Serial.printf("Saved touch calibration cleared: %s\n",
-                  clearTouchCalibration() ? "YES" : "NO - CLEAR FAILED");
+                  clearTouchCalibration(boardProfile)
+                      ? "YES" : "NO - CLEAR FAILED");
     showOverviewPage(
         display, systemReport, displayProbe, sdStatus, boardProfile);
   } else if (command == "calibrate") {
     if (calibrationActive) {
       calibrationActive = false;
-      touchMonitorActive = false;
-      touchWasPressed = false;
+      stopAllTouchMonitoring();
       Serial.println("Touch calibration cancelled.");
       showOverviewPage(
           display, systemReport, displayProbe, sdStatus, boardProfile);
@@ -636,12 +715,44 @@ void serviceSerialConsole() {
 }
 
 void serviceTouchMonitor() {
-  if (!touchMonitorActive || millis() < nextTouchSampleMillis) {
+  if ((!touchMonitorActive && !touchIrqCandidateActive &&
+       !touchRawCandidateActive) ||
+      millis() < nextTouchSampleMillis) {
     return;
   }
 
   nextTouchSampleMillis = millis() + 100;
+
+  if (touchIrqCandidateActive) {
+    const bool irqAsserted = readTouchIrqAsserted();
+    if (irqAsserted) {
+      touchIrqCandidateObserved = true;
+    }
+    if (irqAsserted != touchWasPressed) {
+      Serial.printf("TOUCH_IRQ GPIO=36 STATE=%s\n",
+                    irqAsserted ? "LOW" : "HIGH");
+      touchWasPressed = irqAsserted;
+    }
+    return;
+  }
+
   const TouchSample sample = readTouchSample();
+
+  if (touchRawCandidateActive) {
+    if (sample.irqAsserted) {
+      Serial.printf(
+          "TOUCH_RAW IRQ=LOW RAW_X=%u RAW_Y=%u Z1=%u Z2=%u\n",
+          sample.x,
+          sample.y,
+          sample.z1,
+          sample.z2);
+      touchWasPressed = true;
+    } else if (touchWasPressed) {
+      Serial.println("TOUCH_RAW IRQ=HIGH RELEASED");
+      touchWasPressed = false;
+    }
+    return;
+  }
 
   if (sample.irqAsserted) {
     if (calibrationActive) {
@@ -686,8 +797,8 @@ void setup() {
   delay(300);
 
   boardProfilePersisted = loadBoardProfile(boardProfile);
-  if (boardProfile == BoardProfile::ClassicSingleUsb) {
-    touchCalibrationPersisted = loadTouchCalibration();
+  if (boardProfileIsKnown(boardProfile)) {
+    touchCalibrationPersisted = loadTouchCalibration(boardProfile);
   }
   systemReport = collectSystemReport();
 

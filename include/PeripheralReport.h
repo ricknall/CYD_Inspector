@@ -3,6 +3,8 @@
 #include <Arduino.h>
 #include <SD.h>
 
+#include "BoardProfile.h"
+
 struct SdStatus {
   bool mounted = false;
   uint8_t cardType = CARD_NONE;
@@ -15,5 +17,5 @@ struct SdStatus {
 const char* sdCardTypeName(uint8_t type);
 SdStatus inspectSdCard();
 String sdDisplayText(const SdStatus& status);
-void printPeripheralReport(const SdStatus& status);
+void printPeripheralReport(const SdStatus& status, BoardProfile profile);
 

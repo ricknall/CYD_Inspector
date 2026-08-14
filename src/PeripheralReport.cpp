@@ -61,7 +61,8 @@ String sdDisplayText(const SdStatus& status) {
   return "SD VOLUME: " + String(volumeMiB) + " MB";
 }
 
-void printPeripheralReport(const SdStatus& status) {
+void printPeripheralReport(const SdStatus& status,
+                           const BoardProfile profile) {
   Serial.println("--- PERIPHERALS ---");
   Serial.printf("SD SPI: MOSI=%d MISO=%d SCLK=%d CS=%d at %lu MHz\n",
                 cyd::SD_MOSI,
@@ -92,10 +93,20 @@ void printPeripheralReport(const SdStatus& status) {
   }
 
   Serial.println("Touch mapping: reported in the separate TOUCH section.");
-  Serial.println(
-      "Classic CYD confirmed RGB: GPIO 4=RED, 16=GREEN, 17=BLUE, active LOW.");
-  Serial.println(
-      "Classic CYD confirmed light sensor: GPIO 34, darker=higher raw ADC.");
-  Serial.println(
-      "Classic CYD confirmed speaker: GPIO 26 / DAC2 -> SC8002B -> P4.");
+
+  if (profile == BoardProfile::ClassicSingleUsb) {
+    Serial.println(
+        "Confirmed RGB: GPIO 4=RED, 16=GREEN, 17=BLUE, active LOW.");
+    Serial.println(
+        "Confirmed light sensor: GPIO 34, darker=higher raw ADC.");
+    Serial.println(
+        "Confirmed speaker: GPIO 26 / DAC2 -> SC8002B -> P4.");
+  } else if (profile == BoardProfile::Cyd2Usb) {
+    Serial.println("CYD2USB RGB mapping: NOT TESTED.");
+    Serial.println("CYD2USB light-sensor mapping: NOT TESTED.");
+    Serial.println("CYD2USB speaker mapping: NOT TESTED.");
+    Serial.println("Classic-board results are deliberately not applied.");
+  } else {
+    Serial.println("Peripheral mappings: select a board profile first.");
+  }
 }

@@ -172,7 +172,9 @@ void showDisplayPage(CydDisplay& display, const DisplayProbe& probe) {
   display.text(10, 224, "PROFILE-SPECIFIC MAPPING", DIM, 1);
 }
 
-void showPeripheralPage(CydDisplay& display, const SdStatus& sd) {
+void showPeripheralPage(CydDisplay& display,
+                        const SdStatus& sd,
+                        const BoardProfile profile) {
   title(display, "PERIPHERALS");
   display.text(10, 36, sdDisplayText(sd), sd.mounted ? GREEN : AMBER, 2);
   display.text(10, 62, "SD SPI M:23 I:19 C:18", WHITE, 2);
@@ -196,21 +198,28 @@ void showPeripheralPage(CydDisplay& display, const SdStatus& sd) {
         2);
   }
 
-  display.text(10, 160, "RGB LED: 4/16/17 CONFIRMED", GREEN, 2);
-  display.text(10, 182, "SPEAKER: GPIO 26 CONFIRMED", GREEN, 2);
-  display.text(10, 204, "LIGHT: GPIO 34 CONFIRMED", GREEN, 2);
+  if (profile == BoardProfile::ClassicSingleUsb) {
+    display.text(10, 160, "RGB LED: 4/16/17 CONFIRMED", GREEN, 2);
+    display.text(10, 182, "SPEAKER: GPIO 26 CONFIRMED", GREEN, 2);
+    display.text(10, 204, "LIGHT: GPIO 34 CONFIRMED", GREEN, 2);
+  } else if (profile == BoardProfile::Cyd2Usb) {
+    display.text(10, 160, "RGB LED: NOT TESTED", AMBER, 2);
+    display.text(10, 182, "SPEAKER: NOT TESTED", AMBER, 2);
+    display.text(10, 204, "LIGHT: NOT TESTED", AMBER, 2);
+  } else {
+    display.text(10, 160, "RGB LED: UNASSIGNED", DIM, 2);
+    display.text(10, 182, "SPEAKER: UNASSIGNED", DIM, 2);
+    display.text(10, 204, "LIGHT: UNASSIGNED", DIM, 2);
+  }
   display.text(10, 228, "PROFILE DOES NOT PROVE PINS", AMBER, 1);
 }
 
 void showTouchPage(CydDisplay& display, const BoardProfile profile) {
   title(display, "TOUCH");
 
-  if (profile != BoardProfile::ClassicSingleUsb) {
-    display.text(10, 48, "NOT AVAILABLE", AMBER, 3);
-    display.text(10, 94, "NO CANDIDATE MAPPING", WHITE, 2);
-    display.text(10, 126, "SELECTED PROFILE", CYAN, 2);
-    display.text(10, 150, "IS NOT SUPPORTED YET", CYAN, 2);
-    display.text(10, 214, "NO GPIO GUESSING", DIM, 1);
+  if (!boardProfileIsKnown(profile)) {
+    display.text(10, 48, "SELECT PROFILE", AMBER, 3);
+    display.text(10, 110, "PROFILE 1 OR PROFILE 2", WHITE, 2);
     return;
   }
 
@@ -221,6 +230,36 @@ void showTouchPage(CydDisplay& display, const BoardProfile profile) {
   display.text(10, 176, "TYPE TOUCH AGAIN", WHITE, 2);
   display.text(10, 198, "TO STOP", WHITE, 2);
   display.text(10, 226, "ACTIVE RANGE PRINTED IN SERIAL", DIM, 1);
+}
+
+void showTouchCandidatePage(CydDisplay& display,
+                            const BoardProfile profile,
+                            const bool rawProbe) {
+  title(display, rawProbe ? "CYD2USB RAW TOUCH" : "CYD2USB TOUCH IRQ");
+
+  if (profile != BoardProfile::Cyd2Usb) {
+    display.text(10, 50, "PROFILE 2 REQUIRED", AMBER, 3);
+    return;
+  }
+
+  display.text(10, 44,
+               rawProbe ? "XPT2046 CONFIRMED" : "PASSIVE IRQ ONLY",
+               GREEN,
+               2);
+  display.text(10, 78, "IRQ: GPIO 36", WHITE, 2);
+
+  if (rawProbe) {
+    display.text(10, 108, "PINS 32/39/25/33", WHITE, 2);
+    display.text(10, 140, "PRESS FIVE LOCATIONS", CYAN, 2);
+    display.text(10, 168, "RAW DATA IN SERIAL", CYAN, 2);
+    display.text(10, 204, "TYPE TOUCH PROBE TO STOP", WHITE, 2);
+  } else {
+    display.text(10, 112, "PRESS AND RELEASE SCREEN", CYAN, 2);
+    display.text(10, 148, "WATCH SERIAL FOR LOW/HIGH", CYAN, 2);
+    display.text(10, 204, "TYPE TOUCH IRQ TO STOP", WHITE, 2);
+  }
+
+  display.text(10, 230, "CYD2USB TOUCH CONFIRMED", DIM, 1);
 }
 
 void showCalibrationTarget(CydDisplay& display, const uint8_t targetIndex) {

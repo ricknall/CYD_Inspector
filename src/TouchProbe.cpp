@@ -6,15 +6,29 @@
 
 namespace {
 
-bool initialized = false;
+enum class ProbeMode : uint8_t {
+  None,
+  Confirmed,
+  CandidateIrqOnly,
+  CandidateRaw
+};
+
+ProbeMode probeMode = ProbeMode::None;
 
 // Initial calibration measured on Rick's classic single-USB CYD.
 // Raw X runs from the top to the bottom of the landscape display; raw Y runs
 // from left to right. Values outside the measured range are clipped.
 TouchCalibration activeCalibration;
 
-constexpr char PREFERENCES_NAMESPACE[] = "cyd_touch";
+constexpr char CLASSIC_PREFERENCES_NAMESPACE[] = "cyd_touch";
+constexpr char CYD2USB_PREFERENCES_NAMESPACE[] = "cyd_touch2";
 constexpr uint8_t CALIBRATION_VERSION = 1;
+
+const char* calibrationNamespace(const BoardProfile profile) {
+  return profile == BoardProfile::Cyd2Usb
+      ? CYD2USB_PREFERENCES_NAMESPACE
+      : CLASSIC_PREFERENCES_NAMESPACE;
+}
 
 uint16_t mapClipped(const uint16_t raw,
                     const int32_t rawMinimum,
@@ -54,9 +68,9 @@ uint16_t readChannel(const uint8_t command) {
 }  // namespace
 
 bool beginTouchProbe(const BoardProfile profile) {
-  initialized = false;
+  endTouchProbe();
 
-  if (profile != BoardProfile::ClassicSingleUsb) {
+  if (!boardProfileIsKnown(profile)) {
     return false;
   }
 
@@ -71,15 +85,70 @@ bool beginTouchProbe(const BoardProfile profile) {
   digitalWrite(cyd::TOUCH_MOSI, LOW);
   digitalWrite(cyd::TOUCH_SCLK, LOW);
   digitalWrite(cyd::TOUCH_CS, HIGH);
-  initialized = true;
+  probeMode = ProbeMode::Confirmed;
   return true;
+}
+
+bool beginTouchIrqCandidateProbe(const BoardProfile profile) {
+  endTouchProbe();
+
+  if (profile != BoardProfile::Cyd2Usb) {
+    return false;
+  }
+
+  // Passive first stage: GPIO 36 is input-only, and no output pins are driven.
+  pinMode(cyd::TOUCH_IRQ, INPUT);
+  probeMode = ProbeMode::CandidateIrqOnly;
+  return true;
+}
+
+bool beginTouchRawCandidateProbe(const BoardProfile profile) {
+  endTouchProbe();
+
+  if (profile != BoardProfile::Cyd2Usb) {
+    return false;
+  }
+
+  pinMode(cyd::TOUCH_MOSI, OUTPUT);
+  pinMode(cyd::TOUCH_MISO, INPUT);
+  pinMode(cyd::TOUCH_SCLK, OUTPUT);
+  pinMode(cyd::TOUCH_CS, OUTPUT);
+  pinMode(cyd::TOUCH_IRQ, INPUT);
+
+  digitalWrite(cyd::TOUCH_MOSI, LOW);
+  digitalWrite(cyd::TOUCH_SCLK, LOW);
+  digitalWrite(cyd::TOUCH_CS, HIGH);
+  probeMode = ProbeMode::CandidateRaw;
+  return true;
+}
+
+bool readTouchIrqAsserted() {
+  return probeMode != ProbeMode::None &&
+      digitalRead(cyd::TOUCH_IRQ) == LOW;
+}
+
+void endTouchProbe() {
+  if (probeMode == ProbeMode::Confirmed ||
+      probeMode == ProbeMode::CandidateRaw) {
+    digitalWrite(cyd::TOUCH_CS, HIGH);
+    delayMicroseconds(10);
+  }
+
+  // Return every touch line to high impedance after an active probe.
+  pinMode(cyd::TOUCH_MOSI, INPUT);
+  pinMode(cyd::TOUCH_MISO, INPUT);
+  pinMode(cyd::TOUCH_SCLK, INPUT);
+  pinMode(cyd::TOUCH_CS, INPUT);
+  pinMode(cyd::TOUCH_IRQ, INPUT);
+  probeMode = ProbeMode::None;
 }
 
 TouchSample readTouchSample() {
   TouchSample sample;
-  sample.supported = initialized;
+  sample.supported = probeMode == ProbeMode::Confirmed ||
+      probeMode == ProbeMode::CandidateRaw;
 
-  if (!initialized) {
+  if (!sample.supported) {
     return sample;
   }
 
@@ -119,13 +188,15 @@ bool touchCalibrationIsValid(const TouchCalibration& calibration) {
       horizontalSpan >= 1000 && horizontalSpan <= 5000;
 }
 
-bool saveTouchCalibration(const TouchCalibration& calibration) {
-  if (!touchCalibrationIsValid(calibration)) {
+bool saveTouchCalibration(const BoardProfile profile,
+                          const TouchCalibration& calibration) {
+  if (!boardProfileIsKnown(profile) ||
+      !touchCalibrationIsValid(calibration)) {
     return false;
   }
 
   Preferences preferences;
-  if (!preferences.begin(PREFERENCES_NAMESPACE, false)) {
+  if (!preferences.begin(calibrationNamespace(profile), false)) {
     return false;
   }
 
@@ -139,14 +210,23 @@ bool saveTouchCalibration(const TouchCalibration& calibration) {
   return success;
 }
 
-bool loadTouchCalibration() {
+bool loadTouchCalibration(const BoardProfile profile) {
+  if (!boardProfileIsKnown(profile)) {
+    setTouchCalibration(TouchCalibration{});
+    return false;
+  }
+
   Preferences preferences;
-  if (!preferences.begin(PREFERENCES_NAMESPACE, true)) {
+  // Open read-write so a newly selected profile can create its namespace
+  // without producing an NVS_NOT_FOUND error before its first calibration.
+  if (!preferences.begin(calibrationNamespace(profile), false)) {
+    setTouchCalibration(TouchCalibration{});
     return false;
   }
 
   if (preferences.getUChar("version", 0) != CALIBRATION_VERSION) {
     preferences.end();
+    setTouchCalibration(TouchCalibration{});
     return false;
   }
 
@@ -158,6 +238,7 @@ bool loadTouchCalibration() {
   preferences.end();
 
   if (!touchCalibrationIsValid(calibration)) {
+    setTouchCalibration(TouchCalibration{});
     return false;
   }
 
@@ -165,9 +246,13 @@ bool loadTouchCalibration() {
   return true;
 }
 
-bool clearTouchCalibration() {
+bool clearTouchCalibration(const BoardProfile profile) {
+  if (!boardProfileIsKnown(profile)) {
+    return false;
+  }
+
   Preferences preferences;
-  if (!preferences.begin(PREFERENCES_NAMESPACE, false)) {
+  if (!preferences.begin(calibrationNamespace(profile), false)) {
     return false;
   }
 
@@ -194,10 +279,8 @@ void mapTouchCoordinates(const uint16_t rawX,
 void printTouchConfiguration(const BoardProfile profile) {
   Serial.println("--- TOUCH ---");
 
-  if (profile != BoardProfile::ClassicSingleUsb) {
-    Serial.println(
-        "Touch probe unavailable: no validated candidate mapping for this "
-        "board profile.");
+  if (!boardProfileIsKnown(profile)) {
+    Serial.println("Touch probe unavailable: select a board profile first.");
     return;
   }
 
@@ -215,4 +298,38 @@ void printTouchConfiguration(const BoardProfile profile) {
                 static_cast<long>(activeCalibration.rawLeft),
                 static_cast<long>(activeCalibration.rawRight));
   Serial.println("Mapped touch monitor active. Type 'touch' again to stop.");
+}
+
+void printTouchIrqCandidateConfiguration(const BoardProfile profile) {
+  Serial.println("--- CYD2USB TOUCH IRQ PROBE ---");
+
+  if (profile != BoardProfile::Cyd2Usb) {
+    Serial.println("Unavailable: this probe is only for profile 2.");
+    return;
+  }
+
+  Serial.printf("Confirmed touch IRQ: GPIO %d (input-only)\n",
+                cyd::TOUCH_IRQ);
+  Serial.println("No MOSI, clock, or chip-select pins are being driven.");
+  Serial.println("Press and release the screen in several locations.");
+  Serial.println("Type 'touch irq' again to stop.");
+}
+
+void printTouchRawCandidateConfiguration(const BoardProfile profile) {
+  Serial.println("--- CYD2USB RAW TOUCH DIAGNOSTIC ---");
+
+  if (profile != BoardProfile::Cyd2Usb) {
+    Serial.println("Unavailable: this probe is only for profile 2.");
+    return;
+  }
+
+  Serial.println("Controller: XPT2046-compatible (confirmed)");
+  Serial.printf("Confirmed pins: MOSI=%d MISO=%d SCLK=%d CS=%d IRQ=%d\n",
+                cyd::TOUCH_MOSI,
+                cyd::TOUCH_MISO,
+                cyd::TOUCH_SCLK,
+                cyd::TOUCH_CS,
+                cyd::TOUCH_IRQ);
+  Serial.println("Mode: confirmed bit-banged SPI; raw diagnostic values only.");
+  Serial.println("Type 'touch probe' again to stop and release all output pins.");
 }

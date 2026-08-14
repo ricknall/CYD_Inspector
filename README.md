@@ -4,17 +4,22 @@ CYD Board Inspector is a native PlatformIO diagnostic utility for ESP32 Cheap
 Yellow Display boards. It reports the ESP32, flash, memory, display, storage,
 and peripheral findings on both the LCD and the 115200-baud serial console.
 
-The currently verified peripheral mappings apply to the tested classic
-single-USB CYD. Selecting a board profile is human-assisted and does not assume
-that a visually similar board uses the same wiring.
+XPT2046-compatible touch wiring is verified on the tested classic single-USB
+CYD and CYD2USB two-USB boards. RGB LED, light-sensor, and speaker mappings
+remain verified only on the tested classic single-USB board. Selecting a board
+profile is human-assisted and does not assume that every visually similar board
+uses the same wiring.
 
-## Verified on the classic single-USB CYD
+## Verified touch on both supported profiles
 
-- Display SPI path and controller probing
-- XPT2046-compatible resistive touch:
-  - MOSI 32, MISO 39, SCLK 25, CS 33, IRQ 36
-  - five-point calibration with persistent storage
-  - mapped screen-coordinate monitor
+- XPT2046-compatible resistive touch
+- MOSI 32, MISO 39, SCLK 25, CS 33, IRQ 36
+- five-point calibration with separate persistent storage for each profile
+- mapped screen-coordinate monitor
+- passive IRQ and raw-coordinate diagnostic commands for CYD2USB
+
+## Additional mappings verified on the classic single-USB CYD
+
 - Active-low RGB LED:
   - GPIO 4 red
   - GPIO 16 green
@@ -24,7 +29,8 @@ that a visually similar board uses the same wiring.
 - MicroSD SPI wiring: MOSI 23, MISO 19, SCLK 18, CS 5
 
 The SD interface is reported, but physical media validation remains deferred.
-Peripheral mappings for dual-USB CYD variants are not yet claimed.
+RGB LED, light-sensor, and speaker mappings for CYD2USB remain unclaimed until
+they are physically tested.
 
 ## Open the PlatformIO project
 
@@ -45,8 +51,8 @@ Peripheral mappings for dual-USB CYD variants are not yet claimed.
 PlatformIO normally detects the port. To force one temporarily from PowerShell:
 
 ```powershell
-pio run -e cyd2usb -t upload --upload-port COM9
-pio device monitor --port COM9 --baud 115200
+& "$env:USERPROFILE\.platformio\penv\Scripts\platformio.exe" run -e cyd2usb -t upload --upload-port COM9
+& "$env:USERPROFILE\.platformio\penv\Scripts\platformio.exe" device monitor --port COM9 --baud 115200
 ```
 
 Replace `COM9` with the port currently assigned by Windows.
@@ -64,8 +70,10 @@ system             Print MCU, memory, reset, and software details
 display            Print display profile and probe details
 peripherals        Print SD and peripheral details
 touch              Start or stop the mapped touch monitor
+touch irq          Passively watch the confirmed CYD2USB touch IRQ
+touch probe        Run the raw CYD2USB touch diagnostic
 calibrate          Run five-point touch calibration and save it
-calibrate clear    Delete saved touch calibration
+calibrate clear    Delete calibration for the selected profile
 rgb                Show confirmed RGB mapping and current state
 rgb 4              Turn red on
 rgb 16             Turn green on
@@ -101,7 +109,7 @@ firmware and saved settings.
 After a normal build succeeds, run:
 
 ```powershell
-pio run -e cyd2usb -t merged
+& "$env:USERPROFILE\.platformio\penv\Scripts\platformio.exe" run -e cyd2usb -t merged
 ```
 
 Or select **Project Tasks > cyd2usb > Custom > merged**. This creates:
@@ -115,11 +123,12 @@ docs/CYD_Board_Inspector.merged.bin
 The generated `docs/CYD_Board_Inspector.merged.bin` must be committed with the
 installer page when publishing a browser-installable version.
 
-## Version 1.2.0
+## Version 1.3.0
 
-Version 1.2.0 completes the tested classic single-USB CYD peripheral pass:
-persistent touch calibration, confirmed RGB channels, confirmed GPIO 34 light
-sensor, and the safe GPIO 26 DAC speaker test.
+Version 1.3.0 adds confirmed CYD2USB touchscreen support. Both board profiles
+now support mapped touch and five-point calibration, with independent saved
+calibration data for each physical board family. CYD2USB RGB LED, light-sensor,
+and speaker mappings remain explicitly marked as not tested.
 
-The project pins the pioarduino Espressif platform corresponding to
-Arduino-ESP32 3.3.1. No external libraries are required.
+The project pins the pioarduino Espressif platform in `platformio.ini`. The
+tested runtime reports Arduino-ESP32 3.3.0. No external libraries are required.

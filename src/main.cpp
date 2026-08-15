@@ -3,6 +3,7 @@
 #include "BoardConfig.h"
 #include "BoardProfile.h"
 #include "CydDisplay.h"
+#include "DisplayProfile.h"
 #include "LightProbe.h"
 #include "PeripheralReport.h"
 #include "ReportPages.h"
@@ -13,7 +14,7 @@
 
 namespace {
 
-constexpr char INSPECTOR_VERSION[] = "1.3.0";
+constexpr char INSPECTOR_VERSION[] = "1.4.0";
 
 CydDisplay display;
 
@@ -22,6 +23,10 @@ DisplayProbe displayProbe;
 SdStatus sdStatus;
 BoardProfile boardProfile = BoardProfile::Unknown;
 bool boardProfilePersisted = false;
+DisplayAppProfile confirmedDisplayProfile = DisplayAppProfile::Unknown;
+bool confirmedDisplayProfilePersisted = false;
+DisplayAppProfile activeDisplayProfile = DisplayAppProfile::Unknown;
+DisplayProfileEvidence displayProfileEvidence = DisplayProfileEvidence::None;
 String commandBuffer;
 bool swallowNextLineFeed = false;
 bool touchMonitorActive = false;
@@ -43,6 +48,14 @@ struct CalibrationCapture {
 };
 
 CalibrationCapture calibrationCaptures[5];
+
+void refreshActiveDisplayProfile() {
+  activeDisplayProfile = resolveDisplayAppProfile(
+      displayProbe,
+      confirmedDisplayProfile,
+      boardProfile,
+      displayProfileEvidence);
+}
 
 void stopAllTouchMonitoring() {
   touchMonitorActive = false;
@@ -225,11 +238,48 @@ void printJsonByteArray(const uint8_t* values, const size_t length) {
   Serial.print(']');
 }
 
+void printDisplayAppConfiguration(const DisplayAppProfile profile,
+                                  const DisplayProfileEvidence evidence) {
+  Serial.println("--- WEATHER-APP DISPLAY CONFIGURATION ---");
+  Serial.printf("Application driver: %s\n", displayAppProfileName(profile));
+  Serial.printf("Evidence: %s\n", displayProfileEvidenceName(evidence));
+
+  if (profile == DisplayAppProfile::Unknown) {
+    Serial.println("Select profile 1 or profile 2, then run a display test.");
+    return;
+  }
+
+  Serial.println("TFT_eSPI settings:");
+  if (profile == DisplayAppProfile::Ili9341_2) {
+    Serial.println("  #define ILI9341_2_DRIVER");
+  } else {
+    Serial.println("  #define ST7789_DRIVER");
+    Serial.println("  #define TFT_RGB_ORDER TFT_BGR");
+    Serial.println("  #define TFT_INVERSION_OFF");
+  }
+
+  Serial.println("  #define TFT_MISO 12");
+  Serial.println("  #define TFT_MOSI 13");
+  Serial.println("  #define TFT_SCLK 14");
+  Serial.println("  #define TFT_CS   15");
+  Serial.println("  #define TFT_DC    2");
+  Serial.println("  #define TFT_RST  -1");
+  Serial.println("  #define TFT_BL   21");
+  Serial.println("  #define TFT_BACKLIGHT_ON HIGH");
+  Serial.println("  #define SPI_FREQUENCY 40000000");
+  Serial.println("  #define USE_HSPI_PORT");
+}
+
 void printDisplayReport(const DisplayProbe& probe) {
   Serial.println("--- DISPLAY ---");
-  Serial.println("Profile: compatible manual CYD profile");
-  Serial.printf("Controller result: %s\n",
+  Serial.printf("Electronic controller result: %s\n",
                 displayControllerName(probe.controller));
+  Serial.printf("Readback responding: %s\n",
+                probe.readbackResponding ? "YES" : "NO");
+  Serial.printf("Application driver: %s\n",
+                displayAppProfileName(activeDisplayProfile));
+  Serial.printf("Application-driver evidence: %s\n",
+                displayProfileEvidenceName(displayProfileEvidence));
   Serial.printf("Resolution: %u x %u, orientation=landscape\n",
                 cyd::DISPLAY_WIDTH,
                 cyd::DISPLAY_HEIGHT);
@@ -246,9 +296,15 @@ void printDisplayReport(const DisplayProbe& probe) {
   printHexBytes("  RDID1  DA", probe.idDA, sizeof(probe.idDA));
   printHexBytes("  RDID2  DB", probe.idDB, sizeof(probe.idDB));
   printHexBytes("  RDID3  DC", probe.idDC, sizeof(probe.idDC));
+  printHexBytes("  RDID4  D3 INDEXED",
+                probe.ili9341IndexedD3,
+                sizeof(probe.ili9341IndexedD3));
+  printHexBytes("  STATUS 09", probe.status09, sizeof(probe.status09));
   printHexBytes("  MADCTL 0B", probe.madctl, sizeof(probe.madctl));
   printHexBytes("  PIXFMT 0C", probe.pixelFormat,
                 sizeof(probe.pixelFormat));
+  printDisplayAppConfiguration(activeDisplayProfile,
+                               displayProfileEvidence);
 }
 
 void printInventory() {
@@ -310,8 +366,14 @@ void printJsonReport() {
   Serial.println("  },");
 
   Serial.println("  \"display\": {");
-  Serial.printf("    \"controller\": \"%s\",\n",
+  Serial.printf("    \"electronic_controller\": \"%s\",\n",
                 displayControllerName(displayProbe.controller));
+  Serial.printf("    \"readback_responding\": %s,\n",
+                displayProbe.readbackResponding ? "true" : "false");
+  Serial.printf("    \"application_driver\": \"%s\",\n",
+                displayAppProfileName(activeDisplayProfile));
+  Serial.printf("    \"application_driver_evidence\": \"%s\",\n",
+                displayProfileEvidenceName(displayProfileEvidence));
   Serial.printf("    \"width\": %u,\n", cyd::DISPLAY_WIDTH);
   Serial.printf("    \"height\": %u,\n", cyd::DISPLAY_HEIGHT);
   Serial.printf("    \"mosi\": %d, \"miso\": %d, \"sclk\": %d,\n",
@@ -327,6 +389,13 @@ void printJsonReport() {
   Serial.println(',');
   Serial.print("    \"rdid4_d3\": ");
   printJsonByteArray(displayProbe.idD3, sizeof(displayProbe.idD3));
+  Serial.println(',');
+  Serial.print("    \"rdid4_d3_indexed\": ");
+  printJsonByteArray(displayProbe.ili9341IndexedD3,
+                     sizeof(displayProbe.ili9341IndexedD3));
+  Serial.println(',');
+  Serial.print("    \"status_09\": ");
+  printJsonByteArray(displayProbe.status09, sizeof(displayProbe.status09));
   Serial.println(',');
   Serial.print("    \"madctl_0b\": ");
   printJsonByteArray(displayProbe.madctl, sizeof(displayProbe.madctl));
@@ -380,7 +449,13 @@ void printHelp() {
   Serial.println("  profile 2    Select CYD2USB with two USB connectors");
   Serial.println("  profile clear  Clear the human-assisted selection");
   Serial.println("  system       Print MCU, memory, reset, and software details");
-  Serial.println("  display      Print display profile and probe details");
+  Serial.println("  display      Print IC readback and app-ready settings");
+  Serial.println("  display probe  Repeat the electronic controller probe");
+  Serial.println("  display test ili9341  Draw the ILI9341_2 test pattern");
+  Serial.println("  display test st7789   Draw the ST7789 test pattern");
+  Serial.println("  display confirm ili9341  Save a successful visual test");
+  Serial.println("  display confirm st7789   Save a successful visual test");
+  Serial.println("  display clear  Delete saved visual confirmation");
   Serial.println("  peripherals  Print SD and peripheral-assumption details");
   Serial.println("  touch        Start or stop the mapped touch monitor");
   Serial.println("  touch irq    Passively watch confirmed CYD2USB IRQ on GPIO 36");
@@ -411,7 +486,8 @@ void runCommand(String command) {
     printHelp();
   } else if (command == "report") {
     showOverviewPage(
-        display, systemReport, displayProbe, sdStatus, boardProfile);
+        display, systemReport, displayProbe, sdStatus, boardProfile,
+        activeDisplayProfile);
     printInventory();
   } else if (command == "profile") {
     showProfilePage(display, boardProfile);
@@ -429,6 +505,8 @@ void runCommand(String command) {
     if (argument == "clear" || argument == "unknown" || argument == "0") {
       boardProfile = BoardProfile::Unknown;
       boardProfilePersisted = false;
+      confirmedDisplayProfile = DisplayAppProfile::Unknown;
+      confirmedDisplayProfilePersisted = false;
       setTouchCalibration(TouchCalibration{});
       touchCalibrationPersisted = false;
 
@@ -455,20 +533,121 @@ void runCommand(String command) {
         rgbProbeOff();
       }
       touchCalibrationPersisted = loadTouchCalibration(boardProfile);
+      confirmedDisplayProfilePersisted =
+          loadConfirmedDisplayAppProfile(boardProfile,
+                                         confirmedDisplayProfile);
       Serial.printf("Board profile selected: %s\n",
                     boardProfileName(boardProfile));
       Serial.printf("Saved across resets: %s\n",
                     boardProfilePersisted ? "YES" : "NO - SAVE FAILED");
     }
 
+    refreshActiveDisplayProfile();
+
     showOverviewPage(
-        display, systemReport, displayProbe, sdStatus, boardProfile);
+        display, systemReport, displayProbe, sdStatus, boardProfile,
+        activeDisplayProfile);
   } else if (command == "system") {
     showSystemPage(display, systemReport);
     printSystemReport(systemReport);
   } else if (command == "display") {
-    showDisplayPage(display, displayProbe);
+    showDisplayPage(display,
+                    displayProbe,
+                    activeDisplayProfile,
+                    displayProfileEvidence);
     printDisplayReport(displayProbe);
+  } else if (command == "display probe") {
+    displayProbe = display.probeController();
+    refreshActiveDisplayProfile();
+    showDisplayPage(display,
+                    displayProbe,
+                    activeDisplayProfile,
+                    displayProfileEvidence);
+    printDisplayReport(displayProbe);
+  } else if (command.startsWith("display test ")) {
+    String argument = command.substring(13);
+    argument.trim();
+    const DisplayAppProfile testProfile =
+        displayAppProfileFromArgument(argument);
+
+    if (testProfile == DisplayAppProfile::Unknown) {
+      Serial.println("Unknown display test profile.");
+      Serial.println("Use 'display test ili9341' or 'display test st7789'.");
+    } else {
+      stopAllTouchMonitoring();
+      calibrationActive = false;
+
+      if (testProfile == DisplayAppProfile::Ili9341_2) {
+        display.initializeIli9341Profile();
+      } else {
+        display.initializeSt7789Profile();
+      }
+
+      display.showDriverTestPattern(displayAppProfileName(testProfile));
+      Serial.printf("--- %s VISUAL DISPLAY TEST ---\n",
+                    displayAppProfileName(testProfile));
+      Serial.println("Confirm all four observations:");
+      Serial.println("  1. A white border is visible on all four edges.");
+      Serial.println("  2. Text reads normally from left to right.");
+      Serial.println("  3. Bars are RED, GREEN, then BLUE.");
+      Serial.println("  4. Black and white are not inverted.");
+      Serial.printf("If correct, type 'display confirm %s'.\n",
+                    displayAppProfileArgument(testProfile));
+      Serial.println("Otherwise run the other display test.");
+    }
+  } else if (command.startsWith("display confirm ")) {
+    String argument = command.substring(16);
+    argument.trim();
+    const DisplayAppProfile selectedProfile =
+        displayAppProfileFromArgument(argument);
+
+    if (!boardProfileIsKnown(boardProfile)) {
+      Serial.println("Select profile 1 or profile 2 before confirming.");
+    } else if (selectedProfile == DisplayAppProfile::Unknown) {
+      Serial.println("Unknown display profile.");
+      Serial.println(
+          "Use 'display confirm ili9341' or 'display confirm st7789'.");
+    } else {
+      confirmedDisplayProfile = selectedProfile;
+      confirmedDisplayProfilePersisted = saveConfirmedDisplayAppProfile(
+          boardProfile, confirmedDisplayProfile);
+      refreshActiveDisplayProfile();
+
+      if (selectedProfile == DisplayAppProfile::Ili9341_2) {
+        display.initializeIli9341Profile();
+      } else {
+        display.initializeSt7789Profile();
+      }
+
+      Serial.printf("Display application driver confirmed: %s\n",
+                    displayAppProfileName(selectedProfile));
+      Serial.printf("Saved across resets: %s\n",
+                    confirmedDisplayProfilePersisted
+                        ? "YES"
+                        : "NO - SAVE FAILED");
+      printDisplayAppConfiguration(activeDisplayProfile,
+                                   displayProfileEvidence);
+      showOverviewPage(
+          display, systemReport, displayProbe, sdStatus, boardProfile,
+          activeDisplayProfile);
+    }
+  } else if (command == "display clear") {
+    if (!boardProfileIsKnown(boardProfile)) {
+      Serial.println("Select a board profile before clearing its result.");
+    } else {
+      const bool cleared = clearConfirmedDisplayAppProfile(boardProfile);
+      confirmedDisplayProfile = DisplayAppProfile::Unknown;
+      confirmedDisplayProfilePersisted = false;
+      refreshActiveDisplayProfile();
+      display.initializeCompatibleProfile();
+      Serial.printf("Saved display confirmation cleared: %s\n",
+                    cleared ? "YES" : "NO - CLEAR FAILED");
+      printDisplayAppConfiguration(activeDisplayProfile,
+                                   displayProfileEvidence);
+      showOverviewPage(
+          display, systemReport, displayProbe, sdStatus, boardProfile,
+          activeDisplayProfile);
+    }
   } else if (command == "peripherals") {
     showPeripheralPage(display, sdStatus, boardProfile);
     printPeripheralReport(sdStatus, boardProfile);
@@ -477,7 +656,8 @@ void runCommand(String command) {
       stopAllTouchMonitoring();
       Serial.println("CYD2USB passive touch IRQ probe stopped.");
       showOverviewPage(
-          display, systemReport, displayProbe, sdStatus, boardProfile);
+          display, systemReport, displayProbe, sdStatus, boardProfile,
+          activeDisplayProfile);
     } else {
       stopAllTouchMonitoring();
       calibrationActive = false;
@@ -502,7 +682,8 @@ void runCommand(String command) {
       Serial.println(
           "CYD2USB raw touch diagnostic stopped; pins released.");
       showOverviewPage(
-          display, systemReport, displayProbe, sdStatus, boardProfile);
+          display, systemReport, displayProbe, sdStatus, boardProfile,
+          activeDisplayProfile);
     } else if (!touchIrqCandidateObserved) {
       Serial.println(
           "Raw diagnostic probe locked: first run 'touch irq' and verify a "
@@ -529,7 +710,8 @@ void runCommand(String command) {
       stopAllTouchMonitoring();
       Serial.println("Touch calibration cancelled.");
       showOverviewPage(
-          display, systemReport, displayProbe, sdStatus, boardProfile);
+          display, systemReport, displayProbe, sdStatus, boardProfile,
+          activeDisplayProfile);
       return;
     }
 
@@ -537,7 +719,8 @@ void runCommand(String command) {
       stopAllTouchMonitoring();
       Serial.println("Mapped touch monitor stopped.");
       showOverviewPage(
-          display, systemReport, displayProbe, sdStatus, boardProfile);
+          display, systemReport, displayProbe, sdStatus, boardProfile,
+          activeDisplayProfile);
     } else if (beginTouchProbe(boardProfile)) {
       touchMonitorActive = true;
       touchWasPressed = false;
@@ -562,14 +745,16 @@ void runCommand(String command) {
                   clearTouchCalibration(boardProfile)
                       ? "YES" : "NO - CLEAR FAILED");
     showOverviewPage(
-        display, systemReport, displayProbe, sdStatus, boardProfile);
+        display, systemReport, displayProbe, sdStatus, boardProfile,
+        activeDisplayProfile);
   } else if (command == "calibrate") {
     if (calibrationActive) {
       calibrationActive = false;
       stopAllTouchMonitoring();
       Serial.println("Touch calibration cancelled.");
       showOverviewPage(
-          display, systemReport, displayProbe, sdStatus, boardProfile);
+          display, systemReport, displayProbe, sdStatus, boardProfile,
+          activeDisplayProfile);
     } else if (beginTouchProbe(boardProfile)) {
       resetCalibrationCaptures();
       calibrationTargetIndex = 0;
@@ -799,15 +984,25 @@ void setup() {
   boardProfilePersisted = loadBoardProfile(boardProfile);
   if (boardProfileIsKnown(boardProfile)) {
     touchCalibrationPersisted = loadTouchCalibration(boardProfile);
+    confirmedDisplayProfilePersisted =
+        loadConfirmedDisplayAppProfile(boardProfile,
+                                       confirmedDisplayProfile);
   }
   systemReport = collectSystemReport();
 
   display.begin();
+  if (confirmedDisplayProfile == DisplayAppProfile::Ili9341_2) {
+    display.initializeIli9341Profile();
+  } else if (confirmedDisplayProfile == DisplayAppProfile::St7789) {
+    display.initializeSt7789Profile();
+  }
   displayProbe = display.probeController();
+  refreshActiveDisplayProfile();
   sdStatus = inspectSdCard();
 
   showOverviewPage(
-      display, systemReport, displayProbe, sdStatus, boardProfile);
+      display, systemReport, displayProbe, sdStatus, boardProfile,
+      activeDisplayProfile);
   printInventory();
   printHelp();
   printPrompt();

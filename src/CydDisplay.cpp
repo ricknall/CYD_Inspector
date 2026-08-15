@@ -204,6 +204,38 @@ void CydDisplay::readCommand(const uint8_t commandValue,
       SPISettings(cyd::SPI_FREQUENCY, MSBFIRST, SPI_MODE0));
 }
 
+uint8_t CydDisplay::readIli9341IndexedCommand(
+    const uint8_t commandValue,
+    const uint8_t index) {
+  // ILI9341 serial reads use command 0xD9 to select which byte of a
+  // multi-byte register will be returned. This is the same indexed-read
+  // sequence used by established ILI9341 libraries and catches controllers
+  // that return zeros when 0xD3 is simply streamed.
+  spi_.endTransaction();
+  spi_.beginTransaction(
+      SPISettings(DISPLAY_READ_FREQUENCY, MSBFIRST, SPI_MODE0));
+
+  digitalWrite(cyd::LCD_CS, LOW);
+  digitalWrite(cyd::LCD_DC, LOW);
+  spi_.transfer(0xD9);
+  digitalWrite(cyd::LCD_DC, HIGH);
+  spi_.transfer(0x10 + index);
+  digitalWrite(cyd::LCD_CS, HIGH);
+
+  digitalWrite(cyd::LCD_CS, LOW);
+  digitalWrite(cyd::LCD_DC, LOW);
+  spi_.transfer(commandValue);
+  digitalWrite(cyd::LCD_DC, HIGH);
+  delayMicroseconds(1);
+  const uint8_t result = spi_.transfer(0x00);
+  digitalWrite(cyd::LCD_CS, HIGH);
+
+  spi_.endTransaction();
+  spi_.beginTransaction(
+      SPISettings(cyd::SPI_FREQUENCY, MSBFIRST, SPI_MODE0));
+  return result;
+}
+
 DisplayProbe CydDisplay::probeController() {
   DisplayProbe result;
 
@@ -220,8 +252,15 @@ DisplayProbe CydDisplay::probeController() {
   readCommand(0xDB, result.idDB, sizeof(result.idDB));
   readCommand(0xDC, result.idDC, sizeof(result.idDC));
 
+  for (uint8_t index = 0; index < sizeof(result.ili9341IndexedD3);
+       ++index) {
+    result.ili9341IndexedD3[index] =
+        readIli9341IndexedCommand(0xD3, index);
+  }
+
   // Standard status registers prove whether the serial read path works even
   // when the controller declines to provide a useful identity value.
+  readCommand(0x09, result.status09, sizeof(result.status09));
   readCommand(0x0B, result.madctl, sizeof(result.madctl));
   readCommand(0x0C, result.pixelFormat, sizeof(result.pixelFormat));
 
@@ -241,23 +280,30 @@ DisplayProbe CydDisplay::probeController() {
       containsSequence(result.idD3,
                        sizeof(result.idD3),
                        ILI9341_D3,
+                       sizeof(ILI9341_D3)) ||
+      containsSequence(result.ili9341IndexedD3,
+                       sizeof(result.ili9341IndexedD3),
+                       ILI9341_D3,
                        sizeof(ILI9341_D3));
+
+  result.readbackResponding =
+      usefulReadback(result.id04, sizeof(result.id04)) ||
+      usefulReadback(result.idD3, sizeof(result.idD3)) ||
+      usefulReadback(result.idDA, sizeof(result.idDA)) ||
+      usefulReadback(result.idDB, sizeof(result.idDB)) ||
+      usefulReadback(result.idDC, sizeof(result.idDC)) ||
+      usefulReadback(result.ili9341IndexedD3,
+                     sizeof(result.ili9341IndexedD3)) ||
+      usefulReadback(result.status09, sizeof(result.status09)) ||
+      usefulReadback(result.madctl, sizeof(result.madctl)) ||
+      usefulReadback(result.pixelFormat, sizeof(result.pixelFormat));
 
   if (ili9341Signature) {
     result.controller = DisplayController::Ili9341;
   } else if (st7789Signature) {
     result.controller = DisplayController::St7789V;
   } else {
-    const bool readable =
-        usefulReadback(result.id04, sizeof(result.id04)) ||
-        usefulReadback(result.idD3, sizeof(result.idD3)) ||
-        usefulReadback(result.idDA, sizeof(result.idDA)) ||
-        usefulReadback(result.idDB, sizeof(result.idDB)) ||
-        usefulReadback(result.idDC, sizeof(result.idDC)) ||
-        usefulReadback(result.madctl, sizeof(result.madctl)) ||
-        usefulReadback(result.pixelFormat, sizeof(result.pixelFormat));
-
-    result.controller = readable
+    result.controller = result.readbackResponding
                             ? DisplayController::UnknownReadable
                             : DisplayController::ReadbackUnavailable;
   }
@@ -278,6 +324,175 @@ void CydDisplay::initializeCompatibleProfile() {
   command(0x13);  // Normal display mode
   command(0x29);  // Display on
   delay(20);
+}
+
+void CydDisplay::initializeIli9341Profile() {
+  command(0x01);  // Software reset
+  delay(150);
+
+  const uint8_t powerControlB[] = {0x00, 0xC1, 0x30};
+  command(0xCF);
+  data(powerControlB, sizeof(powerControlB));
+
+  const uint8_t powerOnSequence[] = {0x64, 0x03, 0x12, 0x81};
+  command(0xED);
+  data(powerOnSequence, sizeof(powerOnSequence));
+
+  const uint8_t driverTimingA[] = {0x85, 0x00, 0x78};
+  command(0xE8);
+  data(driverTimingA, sizeof(driverTimingA));
+
+  const uint8_t powerControlA[] = {0x39, 0x2C, 0x00, 0x34, 0x02};
+  command(0xCB);
+  data(powerControlA, sizeof(powerControlA));
+
+  command(0xF7);
+  data8(0x20);
+
+  const uint8_t driverTimingB[] = {0x00, 0x00};
+  command(0xEA);
+  data(driverTimingB, sizeof(driverTimingB));
+
+  command(0xC0);  // ILI9341_2 power control 1
+  data8(0x10);
+  command(0xC1);  // Power control 2
+  data8(0x00);
+
+  const uint8_t vcomControl1[] = {0x30, 0x30};
+  command(0xC5);
+  data(vcomControl1, sizeof(vcomControl1));
+  command(0xC7);
+  data8(0xB7);
+
+  command(0x36);  // Landscape, BGR; normal row/column direction
+  data8(0x28);
+  command(0x3A);  // RGB565
+  data8(0x55);
+
+  const uint8_t frameRate[] = {0x00, 0x1A};
+  command(0xB1);
+  data(frameRate, sizeof(frameRate));
+
+  const uint8_t displayFunction[] = {0x08, 0x82, 0x27};
+  command(0xB6);
+  data(displayFunction, sizeof(displayFunction));
+
+  command(0xF2);
+  data8(0x00);
+  command(0x26);
+  data8(0x01);
+
+  const uint8_t positiveGamma[] = {
+      0x0F, 0x2A, 0x28, 0x08, 0x0E, 0x08, 0x54, 0xA9,
+      0x43, 0x0A, 0x0F, 0x00, 0x00, 0x00, 0x00};
+  command(0xE0);
+  data(positiveGamma, sizeof(positiveGamma));
+
+  const uint8_t negativeGamma[] = {
+      0x00, 0x15, 0x17, 0x07, 0x11, 0x06, 0x2B, 0x56,
+      0x3C, 0x05, 0x10, 0x0F, 0x3F, 0x3F, 0x0F};
+  command(0xE1);
+  data(negativeGamma, sizeof(negativeGamma));
+
+  command(0x11);  // Sleep out
+  delay(120);
+  command(0x20);  // Inversion off, matching the app-driver configuration
+  command(0x29);  // Display on
+  delay(20);
+}
+
+void CydDisplay::initializeSt7789Profile() {
+  command(0x01);  // Software reset
+  delay(150);
+  command(0x11);  // Sleep out
+  delay(120);
+  command(0x13);  // Normal display mode
+  command(0x36);  // Landscape, BGR color order
+  data8(0x68);
+
+  const uint8_t gateControl[] = {0x0A, 0x82};
+  command(0xB6);
+  data(gateControl, sizeof(gateControl));
+
+  const uint8_t ramControl[] = {0x00, 0xE0};
+  command(0xB0);
+  data(ramControl, sizeof(ramControl));
+
+  command(0x3A);  // RGB565
+  data8(0x55);
+  delay(10);
+
+  const uint8_t porchControl[] = {0x0C, 0x0C, 0x00, 0x33, 0x33};
+  command(0xB2);
+  data(porchControl, sizeof(porchControl));
+  command(0xB7);
+  data8(0x35);
+  command(0xBB);
+  data8(0x28);
+  command(0xC0);
+  data8(0x0C);
+
+  const uint8_t vdvVrhEnable[] = {0x01, 0xFF};
+  command(0xC2);
+  data(vdvVrhEnable, sizeof(vdvVrhEnable));
+  command(0xC3);
+  data8(0x10);
+  command(0xC4);
+  data8(0x20);
+  command(0xC6);
+  data8(0x0F);
+
+  const uint8_t powerControl[] = {0xA4, 0xA1};
+  command(0xD0);
+  data(powerControl, sizeof(powerControl));
+
+  const uint8_t positiveGamma[] = {
+      0xD0, 0x00, 0x02, 0x07, 0x0A, 0x28, 0x32,
+      0x44, 0x42, 0x06, 0x0E, 0x12, 0x14, 0x17};
+  command(0xE0);
+  data(positiveGamma, sizeof(positiveGamma));
+
+  const uint8_t negativeGamma[] = {
+      0xD0, 0x00, 0x02, 0x07, 0x0A, 0x28, 0x31,
+      0x54, 0x47, 0x0E, 0x1C, 0x17, 0x1B, 0x1E};
+  command(0xE1);
+  data(negativeGamma, sizeof(negativeGamma));
+
+  command(0x20);  // Inversion off for the documented CYD2USB panel
+  command(0x29);  // Display on
+  delay(120);
+}
+
+void CydDisplay::showDriverTestPattern(const char* profileName) {
+  constexpr uint16_t BLACK = 0x0000;
+  constexpr uint16_t WHITE = 0xFFFF;
+  constexpr uint16_t RED = 0xF800;
+  constexpr uint16_t GREEN = 0x07E0;
+  constexpr uint16_t BLUE = 0x001F;
+  constexpr uint16_t YELLOW = 0xFFE0;
+  constexpr uint16_t CYAN = 0x07FF;
+
+  fill(BLACK);
+
+  // A one-pixel white frame reveals offsets, clipping, and wrong geometry.
+  pixelRect(0, 0, cyd::DISPLAY_WIDTH, 2, WHITE);
+  pixelRect(0, cyd::DISPLAY_HEIGHT - 2, cyd::DISPLAY_WIDTH, 2, WHITE);
+  pixelRect(0, 0, 2, cyd::DISPLAY_HEIGHT, WHITE);
+  pixelRect(cyd::DISPLAY_WIDTH - 2, 0, 2, cyd::DISPLAY_HEIGHT, WHITE);
+
+  text(12, 10, String("DRIVER TEST: ") + profileName, WHITE, 2);
+
+  pixelRect(10, 40, 96, 60, RED);
+  pixelRect(112, 40, 96, 60, GREEN);
+  pixelRect(214, 40, 96, 60, BLUE);
+  text(28, 64, "RED", WHITE, 2);
+  text(124, 64, "GREEN", BLACK, 2);
+  text(238, 64, "BLUE", WHITE, 2);
+
+  text(12, 118, "WHITE BORDER ON ALL 4 EDGES", CYAN, 2);
+  text(12, 146, "TEXT READS LEFT TO RIGHT", YELLOW, 2);
+  text(12, 174, "BARS MUST BE RED GREEN BLUE", WHITE, 2);
+  text(12, 210, "CONFIRM IN SERIAL IF CORRECT", WHITE, 1);
 }
 
 void CydDisplay::setWindow(const uint16_t x0,

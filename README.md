@@ -67,7 +67,13 @@ profile 1          Select classic CYD with one USB connector
 profile 2          Select CYD2USB with two USB connectors
 profile clear      Clear the saved board selection
 system             Print MCU, memory, reset, and software details
-display            Print display profile and probe details
+display            Print IC readback and app-ready display settings
+display probe      Repeat the electronic controller probe
+display test ili9341  Draw the ILI9341_2 visual test pattern
+display test st7789   Draw the ST7789 visual test pattern
+display confirm ili9341  Save a successful ILI9341_2 test
+display confirm st7789   Save a successful ST7789 test
+display clear      Delete the selected board's visual confirmation
 peripherals        Print SD and peripheral details
 touch              Start or stop the mapped touch monitor
 touch irq          Passively watch the confirmed CYD2USB touch IRQ
@@ -132,3 +138,23 @@ and speaker mappings remain explicitly marked as not tested.
 
 The project pins the pioarduino Espressif platform in `platformio.ini`. The
 tested runtime reports Arduino-ESP32 3.3.0. No external libraries are required.
+
+## Version 1.4.0
+
+Version 1.4.0 returns the project to its original display-identification goal.
+It adds the ILI9341 indexed-ID read sequence, reports whether LCD readback is
+responding even when ordinary identity registers are blank, and separates the
+electronic result from the application driver.
+
+The tested classic single-USB and CYD2USB two-USB boards both returned the
+ILI9341 `00 93 41` device signature and passed the `ILI9341_2` visual test.
+Their verified weather-application configuration uses `ILI9341_2_DRIVER`, the
+shared display SPI pins printed by the `display` command, and normal landscape
+orientation. The inspector's direct display initialization uses MADCTL `0x28`
+for correct, non-mirrored landscape output.
+
+Visual ILI9341_2 and ST7789 tests remain available for boards from other
+production batches. A successful result can be saved independently for each
+board family, and `display` prints the matching TFT_eSPI configuration.
+
+See `V1.4_DISPLAY_TEST_GUIDE.md` when validating an untested board.

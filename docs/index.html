@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Install CYD Board Inspector v1.3.0</title>
+    <title>Install CYD Board Inspector v1.4.0</title>
     <script
       type="module"
       src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js?module">
@@ -42,13 +42,14 @@
   </head>
   <body>
     <h1>CYD Board Inspector</h1>
-    <p class="version">Version 1.3.0 — classic and two-USB CYD touch support</p>
+    <p class="version">Version 1.4.0 — display identification and app configuration</p>
     <p>
       Install the hardware diagnostic utility directly from desktop Chrome or
-      Edge. This version includes confirmed touchscreen support and independent
-      persistent calibration for the tested classic single-USB and CYD2USB
-      boards. RGB LED, light-sensor, and speaker mappings remain confirmed only
-      for the tested classic single-USB CYD.
+      Edge. This version electronically identifies supported display
+      controllers, provides visual driver tests, and prints application-ready
+      TFT_eSPI settings. The tested classic single-USB and CYD2USB boards both
+      identify as ILI9341 and use the ILI9341_2 application driver. Confirmed
+      touchscreen support and independent persistent calibration are retained.
     </p>
     <div class="warning">
       <strong>This installation erases the board.</strong>
@@ -58,11 +59,11 @@
     <ol>
       <li>Connect the CYD with a data-capable USB cable.</li>
       <li>Close PlatformIO Serial Monitor and anything else using its COM port.</li>
-      <li>Select <strong>Install CYD Board Inspector v1.3.0</strong>.</li>
+      <li>Select <strong>Install CYD Board Inspector v1.4.0</strong>.</li>
       <li>Choose the CYD serial port when the browser asks.</li>
     </ol>
     <esp-web-install-button manifest="manifest.json">
-      <button slot="activate">Install CYD Board Inspector v1.3.0</button>
+      <button slot="activate">Install CYD Board Inspector v1.4.0</button>
       <span slot="unsupported">
         This browser cannot install over Web Serial. Use desktop Chrome or Edge.
       </span>
@@ -70,8 +71,9 @@
     <p>
       After installation, connect a serial terminal at <code>115200</code> baud
       and type <code>help</code>. Select <code>profile 1</code> for the classic
-      single-USB board or <code>profile 2</code> for the two-USB board, then run
-      <code>calibrate</code> for that physical screen.
+      single-USB board or <code>profile 2</code> for the two-USB board. Type
+      <code>display</code> for the detected controller and application settings,
+      then run <code>calibrate</code> for that physical screen.
     </p>
     <p>
       Source code and documentation:

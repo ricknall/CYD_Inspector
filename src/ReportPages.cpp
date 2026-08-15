@@ -39,34 +39,41 @@ void showOverviewPage(CydDisplay& display,
                       const SystemReport& system,
                       const DisplayProbe& probe,
                       const SdStatus& sd,
-                      const BoardProfile profile) {
+                      const BoardProfile profile,
+                      const DisplayAppProfile appProfile) {
   title(display, "CYD BOARD INSPECTOR");
   display.text(10, 32, "DISPLAY SPI: WORKING", CYAN, 2);
   display.text(
       10,
       54,
-      String("DISPLAY IC: ") + displayControllerName(probe.controller),
+      String("APP DRIVER: ") + displayAppProfileName(appProfile),
       GREEN,
       2);
   display.text(
       10,
       76,
+      String("IC READ: ") + displayControllerName(probe.controller),
+      CYAN,
+      2);
+  display.text(
+      10,
+      98,
       String("BOARD: ") + boardProfileShortName(profile),
       boardProfileIsKnown(profile) ? GREEN : AMBER,
       2);
-  display.text(10, 98, sdDisplayText(sd), AMBER, 2);
+  display.text(10, 120, sdDisplayText(sd), AMBER, 2);
 
-  display.text(10, 122, "MCU: " + system.chipModel, WHITE, 2);
+  display.text(10, 144, "MCU: " + system.chipModel, WHITE, 2);
   display.text(
       10,
-      144,
+      166,
       "CORES: " + String(system.coreCount) +
           " CPU: " + String(system.cpuFrequencyMhz) + " MHZ",
       WHITE,
       2);
   display.text(
       10,
-      166,
+      188,
       "FLASH: " +
           String(system.flashSizeBytes / (1024UL * 1024UL)) +
           " MB " + system.flashMode,
@@ -74,12 +81,12 @@ void showOverviewPage(CydDisplay& display,
       2);
   display.text(
       10,
-      188,
+      210,
       "PSRAM: " + String(system.psramFound ? "YES" : "NO"),
       WHITE,
       2);
 
-  display.text(10, 220, "TYPE HELP IN SERIAL MONITOR", DIM, 1);
+  display.text(10, 230, "TYPE HELP IN SERIAL MONITOR", DIM, 1);
 }
 
 void showProfilePage(CydDisplay& display, const BoardProfile profile) {
@@ -144,18 +151,34 @@ void showSystemPage(CydDisplay& display, const SystemReport& system) {
       1);
 }
 
-void showDisplayPage(CydDisplay& display, const DisplayProbe& probe) {
-  title(display, "DISPLAY + TOUCH");
-  display.text(10, 34, "PROFILE: MANUAL", GREEN, 2);
+void showDisplayPage(CydDisplay& display,
+                     const DisplayProbe& probe,
+                     const DisplayAppProfile appProfile,
+                     const DisplayProfileEvidence evidence) {
+  title(display, "DISPLAY PROFILER");
+  display.text(
+      10,
+      34,
+      String("APP DRIVER: ") + displayAppProfileName(appProfile),
+      GREEN,
+      2);
   display.text(
       10,
       56,
-      String("LCD IC: ") + displayControllerName(probe.controller),
+      String("EVIDENCE: ") + displayProfileEvidenceName(evidence),
       CYAN,
       2);
-  display.text(10, 78, "SIZE: 320 X 240 LANDSCAPE", WHITE, 2);
-  display.text(10, 100, "SPI M:13 I:12 CLK:14", WHITE, 2);
-  display.text(10, 122, "CS:15 DC:2 BL:21", WHITE, 2);
+  display.text(
+      10,
+      78,
+      String("IC READ: ") + displayControllerName(probe.controller),
+      probe.controller == DisplayController::UnknownReadable ||
+              probe.controller == DisplayController::ReadbackUnavailable
+          ? AMBER
+          : GREEN,
+      2);
+  display.text(10, 100, "SIZE: 320 X 240 LANDSCAPE", WHITE, 2);
+  display.text(10, 122, "SPI M:13 I:12 C:14 CS:15", WHITE, 2);
   display.text(10, 148, "04: " + bytesToHex(probe.id04, sizeof(probe.id04)),
                DIM, 1);
   display.text(10, 160, "D3: " + bytesToHex(probe.idD3, sizeof(probe.idD3)),
@@ -163,13 +186,14 @@ void showDisplayPage(CydDisplay& display, const DisplayProbe& probe) {
   display.text(
       10,
       172,
-      "0B: " + bytesToHex(probe.madctl, sizeof(probe.madctl)) +
-          " 0C: " +
-          bytesToHex(probe.pixelFormat, sizeof(probe.pixelFormat)),
+      "D3 INDEXED: " +
+          bytesToHex(probe.ili9341IndexedD3,
+                     sizeof(probe.ili9341IndexedD3)),
       DIM,
       1);
-  display.text(10, 198, "TOUCH: SEE TOUCH REPORT", GREEN, 2);
-  display.text(10, 224, "PROFILE-SPECIFIC MAPPING", DIM, 1);
+  display.text(10, 194, "TYPE DISPLAY TEST ILI9341", WHITE, 1);
+  display.text(10, 206, "OR DISPLAY TEST ST7789", WHITE, 1);
+  display.text(10, 228, "SEE SERIAL FOR APP SETTINGS", DIM, 1);
 }
 
 void showPeripheralPage(CydDisplay& display,
